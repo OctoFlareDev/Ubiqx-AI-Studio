@@ -211,6 +211,7 @@ Fields:
 - `operation`
 - `input_asset_id`
 - `output_asset_id`
+- `options`
 - `status`: `queued`, `running`, `succeeded`, `failed`, `cancelled`
 - `progress`
 - `retry_count`

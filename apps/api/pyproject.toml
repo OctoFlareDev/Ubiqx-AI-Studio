@@ -9,7 +9,8 @@ dependencies = [
   "sqlalchemy>=2.0,<3.0",
   "python-multipart>=0.0.20,<1.0",
   "pydantic>=2.10,<3.0",
-  "psd-tools>=1.10,<2.0"
+  "psd-tools>=1.10,<2.0",
+  "Pillow>=10.3,<13.0"
 ]
 
 [tool.pytest.ini_options]

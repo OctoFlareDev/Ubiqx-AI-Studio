@@ -8,8 +8,10 @@ import {
   FileArchive,
   FileImage,
   Layers3,
+  Maximize2,
   Pencil,
   Plus,
+  Scissors,
   Trash2,
   Upload,
   X,
@@ -33,6 +35,9 @@ const selectedAsset = computed<Asset | null>(
   () => studio.assets.find((asset) => asset.id === selectedAssetId.value) ?? null,
 )
 const selectedAssetIsPhotoshop = computed(() => selectedAsset.value?.media_type === 'image/vnd.adobe.photoshop')
+const selectedAssetIsRaster = computed(() =>
+  selectedAsset.value ? ['image/png', 'image/jpeg', 'image/webp'].includes(selectedAsset.value.media_type) : false,
+)
 const hasExportableNodes = computed(() => studio.nodes.some((node) => node.type !== 'root'))
 
 watch(
@@ -96,6 +101,15 @@ async function importSelectedAsset() {
 
 function cancelImport() {
   void studio.cancelImport()
+}
+
+async function runAiTask(operation: 'upscale' | 'remove_background') {
+  if (!project.value || !selectedAsset.value) return
+  await studio.runAiTask(project.value.id, selectedAsset.value.id, operation)
+}
+
+function cancelAiTask() {
+  void studio.cancelAiTask()
 }
 
 async function exportProject() {
@@ -309,6 +323,40 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
           <button class="icon-button danger" type="button" aria-label="Remove asset reference" title="Remove asset reference" @click="removeSelectedAsset">
             <Trash2 :size="15" />
           </button>
+          <div v-if="selectedAssetIsRaster" class="ai-action">
+            <button
+              class="secondary-button compact-action"
+              type="button"
+              :disabled="studio.aiProcessing"
+              @click="runAiTask('upscale')"
+            >
+              <Maximize2 :size="15" />
+              Upscale
+            </button>
+            <button
+              class="secondary-button compact-action"
+              type="button"
+              :disabled="studio.aiProcessing"
+              @click="runAiTask('remove_background')"
+            >
+              <Scissors :size="15" />
+              Remove background
+            </button>
+          </div>
+          <div v-if="studio.activeAiTask && studio.activeAiTask.input_asset_id === selectedAsset.id" class="ai-task-status">
+            <span>{{ studio.aiProcessing ? 'Processing' : studio.activeAiTask.status }}</span>
+            <span v-if="studio.activeAiTask.status === 'running' || studio.activeAiTask.status === 'queued'">
+              {{ Math.round(studio.activeAiTask.progress * 100) }}%
+            </span>
+            <button
+              v-if="studio.activeAiTask.status === 'running' || studio.activeAiTask.status === 'queued'"
+              class="secondary-button compact-action"
+              type="button"
+              @click="cancelAiTask"
+            >
+              Cancel
+            </button>
+          </div>
           <div v-if="selectedAssetIsPhotoshop" class="import-action">
             <button
               class="primary-button compact-action"
@@ -328,6 +376,9 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
               Cancel
             </button>
           </div>
+          <p v-if="studio.activeAiTask?.status === 'failed' && studio.activeAiTask.input_asset_id === selectedAsset.id" class="import-error">
+            {{ studio.error }}
+          </p>
           <p v-if="studio.activeImportJob?.status === 'failed'" class="import-error">{{ studio.error }}</p>
         </div>
         <div v-else class="property-group">

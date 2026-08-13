@@ -1,4 +1,5 @@
 import type {
+  AiTask,
   ApiErrorEnvelope,
   Asset,
   ExportJob,
@@ -149,4 +150,23 @@ export const api = {
   getExport: (exportId: string) => request<ExportJob>(`/exports/${exportId}`),
   downloadExport: (exportId: string) => requestBlob(`/exports/${exportId}/download`),
   getExportPreview: (exportId: string) => requestText(`/exports/${exportId}/preview`),
+  createAiTask: (
+    projectId: string,
+    inputAssetId: string,
+    operation: 'upscale' | 'remove_background',
+  ) =>
+    request<AiTask>(`/projects/${projectId}/ai-tasks`, {
+      method: 'POST',
+      body: JSON.stringify({
+        operation,
+        provider: 'local',
+        input_asset_id: inputAssetId,
+        options: operation === 'upscale' ? { scale: 2 } : {},
+      }),
+    }),
+  getAiTask: (taskId: string) => request<AiTask>(`/ai-tasks/${taskId}`),
+  listAiTasks: (projectId: string) =>
+    request<{ items: AiTask[]; next_cursor: string | null }>(`/projects/${projectId}/ai-tasks`),
+  cancelAiTask: (taskId: string) =>
+    request<AiTask>(`/ai-tasks/${taskId}/cancel`, { method: 'POST' }),
 }

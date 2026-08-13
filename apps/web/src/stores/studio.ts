@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { api, ensureSession } from '@/services/api'
-import type { Asset, ExportJob, ImportJob, Profile, Project, Scene, SceneNode } from '@/types'
+import type { AiTask, Asset, ExportJob, ImportJob, Profile, Project, Scene, SceneNode } from '@/types'
 
 interface StudioState {
   booted: boolean
@@ -13,8 +13,10 @@ interface StudioState {
   assets: Asset[]
   activeImportJob: ImportJob | null
   activeExportJob: ExportJob | null
+  activeAiTask: AiTask | null
   importing: boolean
   exporting: boolean
+  aiProcessing: boolean
   exportPreviewUrl: string | null
   loading: boolean
   error: string | null
@@ -31,8 +33,10 @@ export const useStudioStore = defineStore('studio', {
     assets: [],
     activeImportJob: null,
     activeExportJob: null,
+    activeAiTask: null,
     importing: false,
     exporting: false,
+    aiProcessing: false,
     exportPreviewUrl: null,
     loading: false,
     error: null,
@@ -196,6 +200,38 @@ export const useStudioStore = defineStore('studio', {
       link.remove()
       window.setTimeout(() => URL.revokeObjectURL(url), 0)
     },
+    async runAiTask(projectId: string, inputAssetId: string, operation: 'upscale' | 'remove_background') {
+      this.aiProcessing = true
+      this.error = null
+      try {
+        this.activeAiTask = await api.createAiTask(projectId, inputAssetId, operation)
+        const task = await this.pollAiTask(this.activeAiTask.id)
+        if (task.status === 'succeeded') {
+          await this.loadAssets(projectId)
+        } else {
+          const message = task.last_error ?? `AI task ${task.status}`
+          this.error = message
+          throw new Error(message)
+        }
+      } catch (error) {
+        this.error = toMessage(error)
+        throw error
+      } finally {
+        this.aiProcessing = false
+      }
+    },
+    async pollAiTask(taskId: string): Promise<AiTask> {
+      while (true) {
+        const task = await api.getAiTask(taskId)
+        this.activeAiTask = task
+        if (['succeeded', 'failed', 'cancelled'].includes(task.status)) return task
+        await new Promise((resolve) => window.setTimeout(resolve, 350))
+      }
+    },
+    async cancelAiTask() {
+      if (!this.activeAiTask || ['succeeded', 'failed', 'cancelled'].includes(this.activeAiTask.status)) return
+      this.activeAiTask = await api.cancelAiTask(this.activeAiTask.id)
+    },
     closeExportPreview() {
       if (this.exportPreviewUrl) URL.revokeObjectURL(this.exportPreviewUrl)
       this.exportPreviewUrl = null
@@ -207,6 +243,7 @@ export const useStudioStore = defineStore('studio', {
       this.assets = []
       this.activeImportJob = null
       this.activeExportJob = null
+      this.activeAiTask = null
       this.closeExportPreview()
     },
   },

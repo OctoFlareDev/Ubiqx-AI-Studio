@@ -15,10 +15,14 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, init_db
 from .deps import get_current_user, get_owned_project
+from .ai_service import CANCELLATION_REQUESTS as AI_CANCELLATION_REQUESTS, run_ai_task
 from .export_service import run_export_job, scene_has_exportable_nodes
 from .import_service import CANCELLATION_REQUESTS, run_import_job
-from .models import Asset, ExportJob, ImportJob, LocalUser, Project, Scene, SceneNode
+from .models import AiTask, Asset, ExportJob, ImportJob, LocalUser, Project, Scene, SceneNode
 from .schemas import (
+    AiTaskCreate,
+    AiTaskList,
+    AiTaskRead,
     AssetRead,
     BootstrapResponse,
     ErrorEnvelope,
@@ -632,3 +636,88 @@ def export_preview(
     if not preview_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="export_preview_missing")
     return FileResponse(preview_path, media_type="text/html", filename="preview.html")
+
+
+def _get_owned_ai_task(task_id: str, user: LocalUser, db: Session) -> AiTask:
+    task = db.get(AiTask, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ai_task_not_found")
+    project = db.get(Project, task.project_id)
+    if project is None or project.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ai_task_not_found")
+    return task
+
+
+@app.post("/api/v1/projects/{project_id}/ai-tasks", response_model=AiTaskRead, status_code=status.HTTP_201_CREATED)
+def create_ai_task(
+    project_id: str,
+    payload: AiTaskCreate,
+    background_tasks: BackgroundTasks,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AiTask:
+    project = get_owned_project(project_id, user, db)
+    input_asset = get_asset(payload.input_asset_id, user, db)
+    if input_asset.project_id != project_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="asset_not_found")
+    task = AiTask(
+        id=str(uuid.uuid4()),
+        project_id=project_id,
+        provider=payload.provider,
+        operation=payload.operation,
+        input_asset_id=input_asset.id,
+        options=payload.options,
+        status="queued",
+        progress=0,
+        retry_count=0,
+        usage={},
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    background_tasks.add_task(run_ai_task, task.id)
+    return task
+
+
+@app.get("/api/v1/ai-tasks/{task_id}", response_model=AiTaskRead)
+def get_ai_task(
+    task_id: str,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AiTask:
+    return _get_owned_ai_task(task_id, user, db)
+
+
+@app.get("/api/v1/projects/{project_id}/ai-tasks", response_model=AiTaskList)
+def list_ai_tasks(
+    project_id: str,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AiTaskList:
+    get_owned_project(project_id, user, db)
+    tasks = db.scalars(
+        select(AiTask)
+        .where(AiTask.project_id == project_id)
+        .order_by(AiTask.created_at.desc())
+    ).all()
+    return AiTaskList(items=[AiTaskRead.model_validate(task) for task in tasks], next_cursor=None)
+
+
+@app.post("/api/v1/ai-tasks/{task_id}/cancel", response_model=AiTaskRead)
+def cancel_ai_task(
+    task_id: str,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> AiTask:
+    task = _get_owned_ai_task(task_id, user, db)
+    if task.status == "queued":
+        task.status = "cancelled"
+        task.finished_at = _now()
+        db.commit()
+        db.refresh(task)
+        return task
+    if task.status == "running":
+        AI_CANCELLATION_REQUESTS.add(task.id)
+        db.commit()
+        db.refresh(task)
+    return task

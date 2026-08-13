@@ -752,6 +752,29 @@ button:disabled {
   margin-top: 14px;
 }
 
+.ai-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ai-task-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.ai-task-status > span:first-child {
+  color: #33404f;
+  font-weight: 650;
+  text-transform: capitalize;
+}
+
 .compact-action {
   min-height: 34px;
   padding: 0 11px;

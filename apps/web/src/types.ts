@@ -106,6 +106,24 @@ export interface ExportJob {
   finished_at: string | null
 }
 
+export interface AiTask {
+  id: string
+  project_id: string
+  provider: string
+  operation: 'upscale' | 'remove_background'
+  input_asset_id: string
+  output_asset_id: string | null
+  options: Record<string, unknown>
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  progress: number
+  retry_count: number
+  last_error: string | null
+  usage: Record<string, unknown>
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
 export interface ApiErrorEnvelope {
   error?: {
     code?: string

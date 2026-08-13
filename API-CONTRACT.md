@@ -149,8 +149,11 @@ Response:
 ```json
 {
   "operation": "remove_background",
-  "provider": "openai",
-  "input_asset_id": "asset_01H..."
+  "provider": "local",
+  "input_asset_id": "asset_01H...",
+  "options": {
+    "tolerance": 32
+  }
 }
 ```
 

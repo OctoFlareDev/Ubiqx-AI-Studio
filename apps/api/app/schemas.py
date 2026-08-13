@@ -164,4 +164,34 @@ class ExportJobRead(ORMModel):
     finished_at: datetime | None
 
 
+class AiTaskCreate(BaseModel):
+    operation: Literal["upscale", "remove_background"]
+    provider: Literal["local", "openai"] = "local"
+    input_asset_id: str
+    options: dict[str, Any] = Field(default_factory=dict)
+
+
+class AiTaskRead(ORMModel):
+    id: str
+    project_id: str
+    provider: str
+    operation: str
+    input_asset_id: str
+    output_asset_id: str | None
+    options: dict[str, Any]
+    status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
+    progress: float
+    retry_count: int
+    last_error: str | None
+    usage: dict[str, Any]
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class AiTaskList(BaseModel):
+    items: list[AiTaskRead]
+    next_cursor: str | None = None
+
+
 BootstrapResponse.model_rebuild()
