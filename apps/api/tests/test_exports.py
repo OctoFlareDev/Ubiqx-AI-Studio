@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+import io
+import time
+import zipfile
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from app.db import SessionLocal
+from app.models import SceneNode
+
+
+FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
+TERMINAL = {"succeeded", "failed", "cancelled"}
+
+
+def _create_project(client: TestClient, headers: dict[str, str]) -> str:
+    response = client.post("/api/v1/projects", headers=headers, json={"name": "Export Test"})
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
+def _upload_fixture(client: TestClient, headers: dict[str, str], project_id: str, filename: str) -> str:
+    source_path = FIXTURE_DIR / filename
+    response = client.post(
+        f"/api/v1/projects/{project_id}/assets",
+        headers=headers,
+        files={"file": (filename, source_path.read_bytes(), "image/vnd.adobe.photoshop")},
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
+def _import_basic_psd(client: TestClient, headers: dict[str, str], project_id: str) -> None:
+    source_asset_id = _upload_fixture(client, headers, project_id, "basic.psd")
+    response = client.post(
+        f"/api/v1/projects/{project_id}/imports",
+        headers=headers,
+        json={"source_asset_id": source_asset_id, "adapter": "psd"},
+    )
+    assert response.status_code == 201
+    _wait_for_terminal(client, headers, f"/api/v1/imports/{response.json()['id']}")
+
+
+def _wait_for_terminal(client: TestClient, headers: dict[str, str], path: str) -> dict:
+    for _ in range(80):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200
+        body = response.json()
+        if body["status"] in TERMINAL:
+            return body
+        time.sleep(0.05)
+    pytest.fail("job did not reach a terminal state")
+
+
+def _add_effect_metadata(scene_id: str) -> None:
+    db = SessionLocal()
+    try:
+        node = db.scalar(
+            select(SceneNode)
+            .where(SceneNode.scene_id == scene_id, SceneNode.type != "root")
+            .limit(1)
+        )
+        assert node is not None
+        node.effect_metadata = {"effects": "BevelEmboss"}
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_export_imported_scene_as_html5_package(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    _import_basic_psd(client, auth_headers, project_id)
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/exports",
+        headers=auth_headers,
+        json={"target": "html5"},
+    )
+    assert response.status_code == 201
+    export_id = response.json()["id"]
+    job = _wait_for_terminal(client, auth_headers, f"/api/v1/exports/{export_id}")
+    assert job["status"] == "succeeded"
+    assert job["error"] is None
+    assert job["warnings"] == []
+
+    manifest = job["manifest"]
+    assert manifest["validation"]["passed"] is True
+    assert manifest["validation"]["node_count"] == 3
+    assert manifest["validation"]["asset_count"] == 2
+    assert "index.html" in manifest["files"]
+    assert "scene.json" in manifest["files"]
+    assert any(path.startswith("assets/") for path in manifest["files"])
+
+    download = client.get(f"/api/v1/exports/{export_id}/download", headers=auth_headers)
+    assert download.status_code == 200
+    assert download.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
+        names = set(archive.namelist())
+        assert {"index.html", "scene.json", "manifest.json"}.issubset(names)
+        assert any(name.startswith("assets/") for name in names)
+        html = archive.read("index.html").decode("utf-8")
+        assert "HUD" in html
+        assert "Button" in html
+        assert "Background" in html
+
+    preview = client.get(f"/api/v1/exports/{export_id}/preview", headers=auth_headers)
+    assert preview.status_code == 200
+    assert "text/html" in preview.headers["content-type"]
+    assert "data:image/png;base64," in preview.text
+    assert "HUD" in preview.text
+
+
+def test_empty_scene_cannot_export(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    response = client.post(
+        f"/api/v1/projects/{project_id}/exports",
+        headers=auth_headers,
+        json={"target": "html5"},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "scene_empty"
+
+
+def test_export_reports_unsupported_effects(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    _import_basic_psd(client, auth_headers, project_id)
+    scene = client.get(f"/api/v1/projects/{project_id}/scene", headers=auth_headers).json()
+    _add_effect_metadata(scene["id"])
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/exports",
+        headers=auth_headers,
+        json={"target": "html5"},
+    )
+    assert response.status_code == 201
+    job = _wait_for_terminal(client, auth_headers, f"/api/v1/exports/{response.json()['id']}")
+    assert job["status"] == "succeeded"
+    assert any(warning["code"] == "unsupported_visual_effect" for warning in job["warnings"])

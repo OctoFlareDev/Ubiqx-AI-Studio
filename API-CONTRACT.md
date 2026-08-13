@@ -88,6 +88,7 @@ HTTP status mapping:
 - `POST /projects/{project_id}/exports` create export job.
 - `GET /exports/{export_id}` get export job.
 - `GET /exports/{export_id}/download` download export package.
+- `GET /exports/{export_id}/preview` preview the generated HTML package.
 
 ### AI Tasks
 
@@ -152,6 +153,27 @@ Response:
   "input_asset_id": "asset_01H..."
 }
 ```
+
+### Create Export
+
+```json
+{
+  "target": "html5"
+}
+```
+
+Response:
+
+```json
+{
+  "id": "exp_01H...",
+  "project_id": "proj_01H...",
+  "target": "html5",
+  "status": "queued"
+}
+```
+
+The export manifest records the package contents, referenced assets, and validation result before the job reaches `succeeded`.
 
 Response:
 

@@ -35,9 +35,12 @@ class Settings:
         return self.data_dir / "assets"
 
     @property
+    def export_dir(self) -> Path:
+        return self.data_dir / "exports"
+
+    @property
     def tmp_dir(self) -> Path:
         return self.data_dir / "tmp"
 
 
 settings = Settings()
-

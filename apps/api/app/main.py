@@ -15,12 +15,15 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, init_db
 from .deps import get_current_user, get_owned_project
+from .export_service import run_export_job, scene_has_exportable_nodes
 from .import_service import CANCELLATION_REQUESTS, run_import_job
-from .models import Asset, ImportJob, LocalUser, Project, Scene, SceneNode
+from .models import Asset, ExportJob, ImportJob, LocalUser, Project, Scene, SceneNode
 from .schemas import (
     AssetRead,
     BootstrapResponse,
     ErrorEnvelope,
+    ExportCreate,
+    ExportJobRead,
     ImportCreate,
     ImportJobRead,
     ProfileRead,
@@ -549,3 +552,83 @@ def cancel_import_job(
         db.commit()
         db.refresh(job)
     return job
+
+
+def _get_owned_export_job(export_id: str, user: LocalUser, db: Session) -> ExportJob:
+    job = db.get(ExportJob, export_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="export_job_not_found")
+    project = db.get(Project, job.project_id)
+    if project is None or project.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="export_job_not_found")
+    return job
+
+
+@app.post("/api/v1/projects/{project_id}/exports", response_model=ExportJobRead, status_code=status.HTTP_201_CREATED)
+def create_export_job(
+    project_id: str,
+    payload: ExportCreate,
+    background_tasks: BackgroundTasks,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ExportJob:
+    project = get_owned_project(project_id, user, db)
+    scene = db.get(Scene, project.root_scene_id) if project.root_scene_id else None
+    if scene is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scene_not_found")
+    if not scene_has_exportable_nodes(db, scene):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="scene_empty")
+    job = ExportJob(
+        id=str(uuid.uuid4()),
+        project_id=project_id,
+        target=payload.target,
+        status="queued",
+        manifest={},
+        warnings=[],
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    background_tasks.add_task(run_export_job, job.id)
+    return job
+
+
+@app.get("/api/v1/exports/{export_id}", response_model=ExportJobRead)
+def get_export_job(
+    export_id: str,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ExportJob:
+    return _get_owned_export_job(export_id, user, db)
+
+
+@app.get("/api/v1/exports/{export_id}/download")
+def download_export(
+    export_id: str,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    job = _get_owned_export_job(export_id, user, db)
+    if job.status != "succeeded" or not job.output_path:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="export_not_ready")
+    package_path = Path(job.output_path)
+    if not package_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="export_package_missing")
+    project = db.get(Project, job.project_id)
+    filename = f"{project.name if project else 'ubiqx'}.html5.zip"
+    return FileResponse(package_path, media_type="application/zip", filename=filename)
+
+
+@app.get("/api/v1/exports/{export_id}/preview")
+def export_preview(
+    export_id: str,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    job = _get_owned_export_job(export_id, user, db)
+    if job.status != "succeeded" or not job.output_path:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="export_not_ready")
+    preview_path = Path(job.output_path).parent / "preview.html"
+    if not preview_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="export_preview_missing")
+    return FileResponse(preview_path, media_type="text/html", filename="preview.html")

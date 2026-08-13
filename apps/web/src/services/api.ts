@@ -1,6 +1,7 @@
 import type {
   ApiErrorEnvelope,
   Asset,
+  ExportJob,
   ImportJob,
   Profile,
   Project,
@@ -57,6 +58,40 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
   return (await response.json()) as T
 }
 
+async function requestBlob(path: string): Promise<Blob> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  })
+  if (!response.ok) {
+    throw await responseError(response)
+  }
+  return response.blob()
+}
+
+async function requestText(path: string): Promise<string> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  })
+  if (!response.ok) {
+    throw await responseError(response)
+  }
+  return response.text()
+}
+
+async function responseError(response: Response): Promise<ApiError> {
+  let envelope: ApiErrorEnvelope = {}
+  try {
+    envelope = (await response.json()) as ApiErrorEnvelope
+  } catch {
+    // Fall through to the generic message below.
+  }
+  return new ApiError(
+    response.status,
+    envelope.error?.code ?? 'request_failed',
+    envelope.error?.message ?? response.statusText,
+  )
+}
+
 export async function ensureSession(): Promise<Profile> {
   if (accessToken) {
     try {
@@ -106,4 +141,12 @@ export const api = {
   getImport: (importId: string) => request<ImportJob>(`/imports/${importId}`),
   cancelImport: (importId: string) =>
     request<ImportJob>(`/imports/${importId}/cancel`, { method: 'POST' }),
+  createExport: (projectId: string) =>
+    request<ExportJob>(`/projects/${projectId}/exports`, {
+      method: 'POST',
+      body: JSON.stringify({ target: 'html5' }),
+    }),
+  getExport: (exportId: string) => request<ExportJob>(`/exports/${exportId}`),
+  downloadExport: (exportId: string) => requestBlob(`/exports/${exportId}/download`),
+  getExportPreview: (exportId: string) => requestText(`/exports/${exportId}/preview`),
 }

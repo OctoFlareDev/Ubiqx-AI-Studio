@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { api, ensureSession } from '@/services/api'
-import type { Asset, ImportJob, Profile, Project, Scene, SceneNode } from '@/types'
+import type { Asset, ExportJob, ImportJob, Profile, Project, Scene, SceneNode } from '@/types'
 
 interface StudioState {
   booted: boolean
@@ -12,7 +12,10 @@ interface StudioState {
   nodes: SceneNode[]
   assets: Asset[]
   activeImportJob: ImportJob | null
+  activeExportJob: ExportJob | null
   importing: boolean
+  exporting: boolean
+  exportPreviewUrl: string | null
   loading: boolean
   error: string | null
 }
@@ -27,7 +30,10 @@ export const useStudioStore = defineStore('studio', {
     nodes: [],
     assets: [],
     activeImportJob: null,
+    activeExportJob: null,
     importing: false,
+    exporting: false,
+    exportPreviewUrl: null,
     loading: false,
     error: null,
   }),
@@ -148,11 +154,60 @@ export const useStudioStore = defineStore('studio', {
       if (!this.activeImportJob || ['succeeded', 'failed', 'cancelled'].includes(this.activeImportJob.status)) return
       this.activeImportJob = await api.cancelImport(this.activeImportJob.id)
     },
+    async exportProject(projectId: string) {
+      this.exporting = true
+      this.error = null
+      try {
+        this.activeExportJob = await api.createExport(projectId)
+        const job = await this.pollExport(this.activeExportJob.id)
+        if (job.status !== 'succeeded') {
+          const message = job.error ?? `Export ${job.status}`
+          this.error = message
+          throw new Error(message)
+        }
+      } catch (error) {
+        this.error = toMessage(error)
+        throw error
+      } finally {
+        this.exporting = false
+      }
+    },
+    async pollExport(exportId: string): Promise<ExportJob> {
+      while (true) {
+        const job = await api.getExport(exportId)
+        this.activeExportJob = job
+        if (['succeeded', 'failed', 'cancelled'].includes(job.status)) return job
+        await new Promise((resolve) => window.setTimeout(resolve, 350))
+      }
+    },
+    async loadExportPreview(exportId: string) {
+      const html = await api.getExportPreview(exportId)
+      if (this.exportPreviewUrl) URL.revokeObjectURL(this.exportPreviewUrl)
+      this.exportPreviewUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+    },
+    async downloadExport(exportId: string) {
+      const blob = await api.downloadExport(exportId)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `ubiqx-html5-export.zip`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    },
+    closeExportPreview() {
+      if (this.exportPreviewUrl) URL.revokeObjectURL(this.exportPreviewUrl)
+      this.exportPreviewUrl = null
+    },
     closeProject() {
       this.currentProjectId = null
       this.scene = null
       this.nodes = []
       this.assets = []
+      this.activeImportJob = null
+      this.activeExportJob = null
+      this.closeExportPreview()
     },
   },
 })

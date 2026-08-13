@@ -74,6 +74,38 @@ export interface ImportJob {
   finished_at: string | null
 }
 
+export interface ExportManifest {
+  format_version: number
+  target: string
+  scene: {
+    id: string
+    width: number
+    height: number
+    metadata: Record<string, unknown>
+  }
+  files: Record<string, { sha256: string; byte_size: number }>
+  referenced_assets: Array<Record<string, unknown>>
+  validation: {
+    passed: boolean
+    node_count: number
+    asset_count: number
+    warning_count: number
+  }
+}
+
+export interface ExportJob {
+  id: string
+  project_id: string
+  target: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  manifest: ExportManifest
+  warnings: Array<Record<string, unknown>>
+  error: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
 export interface ApiErrorEnvelope {
   error?: {
     code?: string

@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import {
+  AlertTriangle,
   ArrowLeft,
   Check,
   Download,
+  Eye,
+  FileArchive,
   FileImage,
   Layers3,
   Pencil,
   Plus,
   Trash2,
   Upload,
+  X,
 } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 
@@ -92,6 +96,21 @@ function cancelImport() {
   void studio.cancelImport()
 }
 
+async function exportProject() {
+  if (!project.value) return
+  await studio.exportProject(project.value.id)
+}
+
+async function previewExport() {
+  if (!studio.activeExportJob) return
+  await studio.loadExportPreview(studio.activeExportJob.id)
+}
+
+async function downloadExport() {
+  if (!studio.activeExportJob) return
+  await studio.downloadExport(studio.activeExportJob.id)
+}
+
 function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
@@ -138,9 +157,9 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
           <Upload :size="16" />
           Import
         </button>
-        <button class="primary-button" type="button" title="HTML5 export is scheduled for M3" disabled>
+        <button class="primary-button" type="button" :disabled="studio.exporting || !studio.nodes.length" @click="exportProject">
           <Download :size="16" />
-          Export
+          {{ studio.exporting ? 'Exporting' : 'Export' }}
         </button>
       </div>
     </header>
@@ -221,6 +240,36 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
           <label>Canvas</label>
           <p>{{ studio.scene.width }} x {{ studio.scene.height }}</p>
         </div>
+        <div v-if="studio.activeExportJob || studio.exporting" class="property-group export-properties">
+          <label>HTML5 export</label>
+          <div class="export-status-row">
+            <FileArchive :size="15" />
+            <span>{{ studio.exporting ? 'Preparing package' : studio.activeExportJob?.status }}</span>
+          </div>
+          <dl v-if="studio.activeExportJob?.status === 'succeeded'" class="export-summary">
+            <dt>Nodes</dt>
+            <dd>{{ studio.activeExportJob.manifest.validation?.node_count ?? 0 }}</dd>
+            <dt>Assets</dt>
+            <dd>{{ studio.activeExportJob.manifest.validation?.asset_count ?? 0 }}</dd>
+            <dt>Warnings</dt>
+            <dd>{{ studio.activeExportJob.manifest.validation?.warning_count ?? 0 }}</dd>
+          </dl>
+          <div v-if="studio.activeExportJob?.warnings.length" class="export-warnings">
+            <AlertTriangle :size="14" />
+            <span>{{ studio.activeExportJob.warnings.length }} warning report item{{ studio.activeExportJob.warnings.length === 1 ? '' : 's' }}</span>
+          </div>
+          <div v-if="studio.activeExportJob?.status === 'succeeded'" class="import-action">
+            <button class="secondary-button compact-action" type="button" @click="previewExport">
+              <Eye :size="15" />
+              Preview
+            </button>
+            <button class="primary-button compact-action" type="button" @click="downloadExport">
+              <Download :size="15" />
+              Download
+            </button>
+          </div>
+          <p v-if="studio.activeExportJob?.status === 'failed'" class="import-error">{{ studio.error }}</p>
+        </div>
         <div v-if="selectedAsset" class="property-group asset-properties">
           <label>Asset</label>
           <h3>{{ selectedAsset.original_name }}</h3>
@@ -264,5 +313,20 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
     </div>
 
     <input ref="fileInput" class="visually-hidden" type="file" accept=".psd,.psb,.png,.jpg,.jpeg,.webp,.svg" @change="onFileSelected" />
+
+    <div v-if="studio.exportPreviewUrl" class="preview-modal-backdrop" @click.self="studio.closeExportPreview">
+      <section class="preview-modal" role="dialog" aria-modal="true" aria-label="HTML5 export preview">
+        <header class="preview-modal-header">
+          <div>
+            <p class="eyebrow">M3 package preview</p>
+            <h3>{{ project.name }}</h3>
+          </div>
+          <button class="icon-button" type="button" aria-label="Close export preview" title="Close preview" @click="studio.closeExportPreview">
+            <X :size="18" />
+          </button>
+        </header>
+        <iframe :src="studio.exportPreviewUrl" title="HTML5 export preview" />
+      </section>
+    </div>
   </div>
 </template>

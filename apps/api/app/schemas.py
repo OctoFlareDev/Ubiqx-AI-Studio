@@ -147,4 +147,21 @@ class ImportJobRead(ORMModel):
     finished_at: datetime | None
 
 
+class ExportCreate(BaseModel):
+    target: Literal["html5"] = "html5"
+
+
+class ExportJobRead(ORMModel):
+    id: str
+    project_id: str
+    target: str
+    status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
+    manifest: dict[str, Any]
+    warnings: list[dict[str, Any]]
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
 BootstrapResponse.model_rebuild()
