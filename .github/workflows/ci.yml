@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install front end dependencies
+        run: npm ci
+
+      - name: Install back end dependencies
+        run: python -m pip install -r apps/api/requirements.txt
+
+      - name: Run API tests
+        run: python -m pytest apps/api/tests -q
+
+      - name: Typecheck front end
+        run: npm run typecheck
+
+      - name: Build front end
+        run: npm run build:web
+
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright smoke test
+        run: bash scripts/run-e2e.sh
+
