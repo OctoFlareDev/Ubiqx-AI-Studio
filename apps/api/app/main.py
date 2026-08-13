@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -15,11 +15,14 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, init_db
 from .deps import get_current_user, get_owned_project
-from .models import Asset, LocalUser, Project, Scene, SceneNode
+from .import_service import CANCELLATION_REQUESTS, run_import_job
+from .models import Asset, ImportJob, LocalUser, Project, Scene, SceneNode
 from .schemas import (
     AssetRead,
     BootstrapResponse,
     ErrorEnvelope,
+    ImportCreate,
+    ImportJobRead,
     ProfileRead,
     ProjectCreate,
     ProjectList,
@@ -477,3 +480,72 @@ def delete_asset(
     asset = get_asset(asset_id, user, db)
     db.delete(asset)
     db.commit()
+
+
+def _get_owned_import_job(import_id: str, user: LocalUser, db: Session) -> ImportJob:
+    job = db.get(ImportJob, import_id)
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="import_job_not_found")
+    project = db.get(Project, job.project_id)
+    if project is None or project.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="import_job_not_found")
+    return job
+
+
+@app.post("/api/v1/projects/{project_id}/imports", response_model=ImportJobRead, status_code=status.HTTP_201_CREATED)
+def create_import_job(
+    project_id: str,
+    payload: ImportCreate,
+    background_tasks: BackgroundTasks,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ImportJob:
+    project = get_owned_project(project_id, user, db)
+    source_asset = get_asset(payload.source_asset_id, user, db)
+    if source_asset.project_id != project_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="asset_not_found")
+    if source_asset.media_type != "image/vnd.adobe.photoshop":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported_import_source")
+    job = ImportJob(
+        id=str(uuid.uuid4()),
+        project_id=project_id,
+        source_asset_id=source_asset.id,
+        adapter=payload.adapter,
+        status="queued",
+        progress=0,
+        warnings=[],
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    background_tasks.add_task(run_import_job, job.id)
+    return job
+
+
+@app.get("/api/v1/imports/{import_id}", response_model=ImportJobRead)
+def get_import_job(
+    import_id: str,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ImportJob:
+    return _get_owned_import_job(import_id, user, db)
+
+
+@app.post("/api/v1/imports/{import_id}/cancel", response_model=ImportJobRead)
+def cancel_import_job(
+    import_id: str,
+    user: LocalUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ImportJob:
+    job = _get_owned_import_job(import_id, user, db)
+    if job.status == "queued":
+        job.status = "cancelled"
+        job.finished_at = _now()
+        db.commit()
+        db.refresh(job)
+        return job
+    if job.status == "running":
+        CANCELLATION_REQUESTS.add(job.id)
+        db.commit()
+        db.refresh(job)
+    return job

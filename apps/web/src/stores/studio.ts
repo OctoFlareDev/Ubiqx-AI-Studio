@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 
 import { api, ensureSession } from '@/services/api'
-import type { Asset, Profile, Project, Scene, SceneNode } from '@/types'
+import type { Asset, ImportJob, Profile, Project, Scene, SceneNode } from '@/types'
 
 interface StudioState {
   booted: boolean
@@ -11,6 +11,8 @@ interface StudioState {
   scene: Scene | null
   nodes: SceneNode[]
   assets: Asset[]
+  activeImportJob: ImportJob | null
+  importing: boolean
   loading: boolean
   error: string | null
 }
@@ -24,6 +26,8 @@ export const useStudioStore = defineStore('studio', {
     scene: null,
     nodes: [],
     assets: [],
+    activeImportJob: null,
+    importing: false,
     loading: false,
     error: null,
   }),
@@ -112,6 +116,38 @@ export const useStudioStore = defineStore('studio', {
       await api.deleteAsset(assetId)
       this.assets = this.assets.filter((asset) => asset.id !== assetId)
     },
+    async importSourceAsset(projectId: string, sourceAssetId: string) {
+      this.importing = true
+      this.error = null
+      try {
+        this.activeImportJob = await api.createImport(projectId, sourceAssetId)
+        const job = await this.pollImport(this.activeImportJob.id)
+        if (job.status === 'succeeded') {
+          await this.openProject(projectId)
+        } else {
+          const message = job.error ?? `Import ${job.status}`
+          this.error = message
+          throw new Error(message)
+        }
+      } catch (error) {
+        this.error = toMessage(error)
+        throw error
+      } finally {
+        this.importing = false
+      }
+    },
+    async pollImport(importId: string): Promise<ImportJob> {
+      while (true) {
+        const job = await api.getImport(importId)
+        this.activeImportJob = job
+        if (['succeeded', 'failed', 'cancelled'].includes(job.status)) return job
+        await new Promise((resolve) => window.setTimeout(resolve, 350))
+      }
+    },
+    async cancelImport() {
+      if (!this.activeImportJob || ['succeeded', 'failed', 'cancelled'].includes(this.activeImportJob.status)) return
+      this.activeImportJob = await api.cancelImport(this.activeImportJob.id)
+    },
     closeProject() {
       this.currentProjectId = null
       this.scene = null
@@ -125,4 +161,3 @@ function toMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   return 'An unexpected error occurred.'
 }
-

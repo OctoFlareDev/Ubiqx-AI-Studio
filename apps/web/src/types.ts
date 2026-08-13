@@ -60,6 +60,20 @@ export interface SceneNode {
   updated_at: string
 }
 
+export interface ImportJob {
+  id: string
+  project_id: string
+  source_asset_id: string
+  adapter: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  progress: number
+  warnings: Array<Record<string, unknown>>
+  error: string | null
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+}
+
 export interface ApiErrorEnvelope {
   error?: {
     code?: string
@@ -67,4 +81,3 @@ export interface ApiErrorEnvelope {
     request_id?: string | null
   }
 }
-

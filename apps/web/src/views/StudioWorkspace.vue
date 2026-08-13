@@ -27,6 +27,7 @@ const saveState = ref<'idle' | 'saving' | 'saved'>('saved')
 const selectedAsset = computed<Asset | null>(
   () => studio.assets.find((asset) => asset.id === selectedAssetId.value) ?? null,
 )
+const selectedAssetIsPhotoshop = computed(() => selectedAsset.value?.media_type === 'image/vnd.adobe.photoshop')
 
 watch(
   () => project.value?.name,
@@ -80,6 +81,15 @@ async function removeSelectedAsset() {
   if (!selectedAsset.value) return
   await studio.deleteAsset(selectedAsset.value.id)
   selectedAssetId.value = null
+}
+
+async function importSelectedAsset() {
+  if (!project.value || !selectedAsset.value) return
+  await studio.importSourceAsset(project.value.id, selectedAsset.value.id)
+}
+
+function cancelImport() {
+  void studio.cancelImport()
 }
 
 function formatBytes(value: number): string {
@@ -225,6 +235,26 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
           <button class="icon-button danger" type="button" aria-label="Remove asset reference" title="Remove asset reference" @click="removeSelectedAsset">
             <Trash2 :size="15" />
           </button>
+          <div v-if="selectedAssetIsPhotoshop" class="import-action">
+            <button
+              class="primary-button compact-action"
+              type="button"
+              :disabled="studio.importing"
+              @click="importSelectedAsset"
+            >
+              <Layers3 :size="15" />
+              {{ studio.importing ? 'Importing' : 'Import as scene' }}
+            </button>
+            <button
+              v-if="studio.importing && studio.activeImportJob"
+              class="secondary-button compact-action"
+              type="button"
+              @click="cancelImport"
+            >
+              Cancel
+            </button>
+          </div>
+          <p v-if="studio.activeImportJob?.status === 'failed'" class="import-error">{{ studio.error }}</p>
         </div>
         <div v-else class="property-group">
           <label>Selection</label>
@@ -236,4 +266,3 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
     <input ref="fileInput" class="visually-hidden" type="file" accept=".psd,.psb,.png,.jpg,.jpeg,.webp,.svg" @change="onFileSelected" />
   </div>
 </template>
-

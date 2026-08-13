@@ -1,6 +1,7 @@
 import type {
   ApiErrorEnvelope,
   Asset,
+  ImportJob,
   Profile,
   Project,
   Scene,
@@ -97,5 +98,12 @@ export const api = {
     return request<Asset>(`/projects/${projectId}/assets`, { method: 'POST', body: form })
   },
   deleteAsset: (assetId: string) => request<void>(`/assets/${assetId}`, { method: 'DELETE' }),
+  createImport: (projectId: string, sourceAssetId: string) =>
+    request<ImportJob>(`/projects/${projectId}/imports`, {
+      method: 'POST',
+      body: JSON.stringify({ source_asset_id: sourceAssetId, adapter: 'psd' }),
+    }),
+  getImport: (importId: string) => request<ImportJob>(`/imports/${importId}`),
+  cancelImport: (importId: string) =>
+    request<ImportJob>(`/imports/${importId}/cancel`, { method: 'POST' }),
 }
-

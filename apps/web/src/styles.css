@@ -729,6 +729,25 @@ button:disabled {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.import-action {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.compact-action {
+  min-height: 34px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+.import-error {
+  margin: 10px 0 0;
+  color: var(--danger);
+  font-size: 12px;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -800,4 +819,3 @@ button:disabled {
     display: none;
   }
 }
-

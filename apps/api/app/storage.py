@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import shutil
 from pathlib import Path
-from typing import BinaryIO
 
 from fastapi import UploadFile
 
@@ -81,7 +80,11 @@ class AssetStore:
         if detected_extension is None:
             tmp_path.unlink(missing_ok=True)
             raise ValueError("unknown_file_type")
-        if detected_extension != extension and not (extension == ".jpg" and detected_extension == ".jpeg"):
+        compatible_extension = (
+            (extension == ".jpg" and detected_extension == ".jpeg")
+            or (extension == ".psb" and detected_extension == ".psd")
+        )
+        if detected_extension != extension and not compatible_extension:
             tmp_path.unlink(missing_ok=True)
             raise ValueError("file_extension_mismatch")
 
@@ -101,3 +104,17 @@ class AssetStore:
             "storage_path": str(storage_path),
         }
 
+    def save_bytes(self, data: bytes, original_name: str, media_type: str) -> dict:
+        safe_name = _safe_original_name(original_name)
+        content_hash = hashlib.sha256(data).hexdigest()
+        destination = self.root / content_hash[:2] / content_hash
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        if not destination.exists():
+            destination.write_bytes(data)
+        return {
+            "content_hash": content_hash,
+            "media_type": media_type,
+            "original_name": safe_name,
+            "byte_size": len(data),
+            "storage_path": str(destination),
+        }

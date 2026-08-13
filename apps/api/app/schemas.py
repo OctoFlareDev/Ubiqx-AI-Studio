@@ -128,4 +128,23 @@ class SceneNodeRead(ORMModel):
     updated_at: datetime
 
 
+class ImportCreate(BaseModel):
+    source_asset_id: str
+    adapter: Literal["psd"] = "psd"
+
+
+class ImportJobRead(ORMModel):
+    id: str
+    project_id: str
+    source_asset_id: str
+    adapter: str
+    status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
+    progress: float
+    warnings: list[dict[str, Any]]
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
 BootstrapResponse.model_rebuild()

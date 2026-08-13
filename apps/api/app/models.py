@@ -111,3 +111,19 @@ class Asset(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     project: Mapped[Project] = relationship(back_populates="assets")
+
+
+class ImportJob(Base):
+    __tablename__ = "import_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    source_asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id"), index=True)
+    adapter: Mapped[str] = mapped_column(String(24), default="psd")
+    status: Mapped[str] = mapped_column(String(24), default="queued", index=True)
+    progress: Mapped[float] = mapped_column(Float, default=0)
+    warnings: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
