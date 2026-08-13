@@ -127,7 +127,19 @@ export const api = {
     request<void>(`/projects/${projectId}`, { method: 'DELETE' }),
   getScene: (projectId: string) => request<Scene>(`/projects/${projectId}/scene`),
   listNodes: (sceneId: string) => request<SceneNode[]>(`/scenes/${sceneId}/nodes`),
+  updateNode: (
+    sceneId: string,
+    nodeId: string,
+    payload: {
+      name?: string
+      visible?: boolean
+      locked?: boolean
+      opacity?: number
+      transform?: Record<string, number>
+    },
+  ) => request<SceneNode>(`/scenes/${sceneId}/nodes/${nodeId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   listAssets: (projectId: string) => request<Asset[]>(`/projects/${projectId}/assets`),
+  getAssetContent: (assetId: string) => requestBlob(`/assets/${assetId}/content`),
   uploadAsset: (projectId: string, file: File) => {
     const form = new FormData()
     form.append('file', file)

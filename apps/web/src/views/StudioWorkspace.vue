@@ -5,9 +5,12 @@ import {
   Check,
   Download,
   Eye,
+  EyeOff,
   FileArchive,
   FileImage,
   Layers3,
+  Lock,
+  LockOpen,
   Maximize2,
   Pencil,
   Plus,
@@ -19,7 +22,8 @@ import {
 import { computed, onMounted, ref, watch } from 'vue'
 
 import { useStudioStore } from '@/stores/studio'
-import type { Asset } from '@/types'
+import type { Asset, SceneNode } from '@/types'
+import SceneCanvas from '@/components/SceneCanvas.vue'
 
 const studio = useStudioStore()
 const project = computed(() => studio.currentProject)
@@ -39,6 +43,20 @@ const selectedAssetIsRaster = computed(() =>
   selectedAsset.value ? ['image/png', 'image/jpeg', 'image/webp'].includes(selectedAsset.value.media_type) : false,
 )
 const hasExportableNodes = computed(() => studio.nodes.some((node) => node.type !== 'root'))
+const layerRows = computed(() => {
+  const rows: Array<{ node: SceneNode; depth: number }> = []
+  const walk = (parentId: string | null, depth: number) => {
+    const children = studio.nodes
+      .filter((node) => node.type !== 'root' && node.parent_id === parentId)
+      .sort((a, b) => a.order_index - b.order_index)
+    for (const child of children) {
+      rows.push({ node: child, depth })
+      walk(child.id, depth + 1)
+    }
+  }
+  walk(studio.scene?.root_node_id ?? null, 0)
+  return rows
+})
 
 watch(
   () => project.value?.name,
@@ -136,23 +154,52 @@ async function downloadExport() {
   await studio.downloadExport(studio.activeExportJob.id)
 }
 
+function selectLayer(node: SceneNode) {
+  studio.selectNode(node.id)
+}
+
+async function toggleLayerVisible(node: SceneNode) {
+  await studio.toggleNodeVisibility(node.id)
+}
+
+async function toggleLayerLocked(node: SceneNode) {
+  await studio.toggleNodeLocked(node.id)
+}
+
+function commitSelectedName(event: Event) {
+  const node = studio.selectedNode
+  if (!node) return
+  const value = (event.target as HTMLInputElement).value.trim()
+  if (!value) return
+  void studio.commitNodeProperties(node.id, { name: value })
+}
+
+function commitSelectedNumber(event: Event, field: 'opacity' | 'x' | 'y' | 'width' | 'height' | 'rotation') {
+  const node = studio.selectedNode
+  if (!node) return
+  const value = Number((event.target as HTMLInputElement).value)
+  if (!Number.isFinite(value)) return
+  const patch =
+    field === 'opacity'
+      ? { opacity: Math.min(1, Math.max(0, value)) }
+      : { transform: { ...node.transform, [field]: value } }
+  void studio.commitNodeProperties(node.id, patch)
+}
+
+function previewSelectedOpacity(event: Event) {
+  const node = studio.selectedNode
+  if (!node) return
+  const value = Number((event.target as HTMLInputElement).value)
+  if (!Number.isFinite(value)) return
+  studio.updateNodeLocal(node.id, { opacity: Math.min(1, Math.max(0, value)) })
+}
+
 function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
   return `${(value / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function nodeStyle(node: { transform: Record<string, number>; opacity: number; visible: boolean }) {
-  const transform = node.transform
-  return {
-    left: `${transform.x ?? 0}px`,
-    top: `${transform.y ?? 0}px`,
-    width: `${transform.width ?? 100}px`,
-    height: `${transform.height ?? 100}px`,
-    opacity: `${node.opacity ?? 1}`,
-    display: node.visible ? 'block' : 'none',
-  }
-}
 </script>
 
 <template>
@@ -217,10 +264,37 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
         </div>
 
         <div v-if="activePanel === 'layers'" class="panel-content">
-          <div v-if="studio.nodes.length" class="layer-list">
-            <div v-for="node in studio.nodes" :key="node.id" class="layer-row">
-              <Layers3 :size="15" />
-              <span>{{ node.name }}</span>
+          <div v-if="layerRows.length" class="layer-list">
+            <div
+              v-for="row in layerRows"
+              :key="row.node.id"
+              class="layer-row"
+              :class="{ selected: studio.selectedNodeId === row.node.id }"
+              :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
+              @click="selectLayer(row.node)"
+            >
+              <button
+                class="icon-button layer-toggle"
+                type="button"
+                :aria-label="row.node.visible ? 'Hide layer' : 'Show layer'"
+                :title="row.node.visible ? 'Hide layer' : 'Show layer'"
+                @click.stop="toggleLayerVisible(row.node)"
+              >
+                <Eye v-if="row.node.visible" :size="14" />
+                <EyeOff v-else :size="14" />
+              </button>
+              <button
+                class="icon-button layer-toggle"
+                type="button"
+                :aria-label="row.node.locked ? 'Unlock layer' : 'Lock layer'"
+                :title="row.node.locked ? 'Unlock layer' : 'Lock layer'"
+                @click.stop="toggleLayerLocked(row.node)"
+              >
+                <LockOpen v-if="row.node.locked" :size="14" />
+                <Lock v-else :size="14" />
+              </button>
+              <Layers3 :size="14" />
+              <span class="layer-name">{{ row.node.name }}</span>
             </div>
           </div>
           <div v-else class="panel-empty">
@@ -258,11 +332,7 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
       </aside>
 
       <section class="canvas-panel" data-testid="studio-canvas">
-        <div v-if="studio.scene" class="canvas-stage" :style="{ aspectRatio: `${studio.scene.width} / ${studio.scene.height}` }">
-          <div v-for="node in studio.nodes.filter((item) => item.type !== 'root')" :key="node.id" class="canvas-node" :style="nodeStyle(node)">
-            <span>{{ node.name }}</span>
-          </div>
-        </div>
+        <SceneCanvas v-if="studio.scene" />
         <div v-else class="canvas-panel-empty" />
       </section>
 
@@ -309,7 +379,52 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
           </div>
           <p v-if="studio.activeExportJob?.status === 'failed'" class="import-error">{{ studio.error }}</p>
         </div>
-        <div v-if="selectedAsset" class="property-group asset-properties">
+        <div v-if="studio.selectedNode" class="property-group node-properties">
+          <label>Layer</label>
+          <input class="property-input" type="text" :value="studio.selectedNode.name" aria-label="Layer name" @change="commitSelectedName" />
+          <dl>
+            <dt>Type</dt>
+            <dd>{{ studio.selectedNode.type }}</dd>
+            <dt>Visible</dt>
+            <dd>
+              <input type="checkbox" :checked="studio.selectedNode.visible" @change="toggleLayerVisible(studio.selectedNode)" />
+            </dd>
+            <dt>Locked</dt>
+            <dd>
+              <input type="checkbox" :checked="studio.selectedNode.locked" @change="toggleLayerLocked(studio.selectedNode)" />
+            </dd>
+          </dl>
+          <div class="property-field">
+            <label for="node-x">X</label>
+            <input id="node-x" class="property-input" type="number" :value="studio.selectedNode.transform.x ?? 0" @change="commitSelectedNumber($event, 'x')" />
+            <label for="node-y">Y</label>
+            <input id="node-y" class="property-input" type="number" :value="studio.selectedNode.transform.y ?? 0" @change="commitSelectedNumber($event, 'y')" />
+          </div>
+          <div class="property-field">
+            <label for="node-width">W</label>
+            <input id="node-width" class="property-input" type="number" :value="studio.selectedNode.transform.width ?? 0" @change="commitSelectedNumber($event, 'width')" />
+            <label for="node-height">H</label>
+            <input id="node-height" class="property-input" type="number" :value="studio.selectedNode.transform.height ?? 0" @change="commitSelectedNumber($event, 'height')" />
+          </div>
+          <div class="property-field">
+            <label for="node-rotation">Rot</label>
+            <input id="node-rotation" class="property-input" type="number" :value="studio.selectedNode.transform.rotation ?? 0" @change="commitSelectedNumber($event, 'rotation')" />
+            <label for="node-opacity">Opacity</label>
+            <input
+              id="node-opacity"
+              class="property-input opacity-input"
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="studio.selectedNode.opacity"
+              @input="previewSelectedOpacity"
+              @change="commitSelectedNumber($event, 'opacity')"
+            />
+            <span class="property-value">{{ Math.round((studio.selectedNode.opacity ?? 1) * 100) }}%</span>
+          </div>
+        </div>
+        <div v-else-if="selectedAsset" class="property-group asset-properties">
           <label>Asset</label>
           <h3>{{ selectedAsset.original_name }}</h3>
           <dl>

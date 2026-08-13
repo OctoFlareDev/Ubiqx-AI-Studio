@@ -10,6 +10,9 @@ interface StudioState {
   currentProjectId: string | null
   scene: Scene | null
   nodes: SceneNode[]
+  selectedNodeId: string | null
+  past: SceneNode[][]
+  future: SceneNode[][]
   assets: Asset[]
   activeImportJob: ImportJob | null
   activeExportJob: ExportJob | null
@@ -17,6 +20,7 @@ interface StudioState {
   importing: boolean
   exporting: boolean
   aiProcessing: boolean
+  saving: boolean
   exportPreviewUrl: string | null
   loading: boolean
   error: string | null
@@ -30,6 +34,9 @@ export const useStudioStore = defineStore('studio', {
     currentProjectId: null,
     scene: null,
     nodes: [],
+    selectedNodeId: null,
+    past: [],
+    future: [],
     assets: [],
     activeImportJob: null,
     activeExportJob: null,
@@ -37,6 +44,7 @@ export const useStudioStore = defineStore('studio', {
     importing: false,
     exporting: false,
     aiProcessing: false,
+    saving: false,
     exportPreviewUrl: null,
     loading: false,
     error: null,
@@ -44,6 +52,7 @@ export const useStudioStore = defineStore('studio', {
   getters: {
     currentProject: (state) => state.projects.find((project) => project.id === state.currentProjectId) ?? null,
     currentAssets: (state) => state.assets,
+    selectedNode: (state) => state.nodes.find((node) => node.id === state.selectedNodeId) ?? null,
   },
   actions: {
     async boot() {
@@ -103,6 +112,9 @@ export const useStudioStore = defineStore('studio', {
       this.currentProjectId = projectId
       this.scene = null
       this.nodes = []
+      this.selectedNodeId = null
+      this.past = []
+      this.future = []
       this.assets = []
       try {
         const [scene, assets] = await Promise.all([api.getScene(projectId), api.listAssets(projectId)])
@@ -232,6 +244,93 @@ export const useStudioStore = defineStore('studio', {
       if (!this.activeAiTask || ['succeeded', 'failed', 'cancelled'].includes(this.activeAiTask.status)) return
       this.activeAiTask = await api.cancelAiTask(this.activeAiTask.id)
     },
+    selectNode(nodeId: string | null) {
+      this.selectedNodeId = nodeId
+    },
+    startMutation() {
+      this.past.push(cloneNodes(this.nodes))
+      if (this.past.length > 50) this.past.shift()
+      this.future = []
+    },
+    updateNodeLocal(nodeId: string, patch: NodePatch) {
+      const index = this.nodes.findIndex((node) => node.id === nodeId)
+      if (index < 0) return
+      this.nodes[index] = Object.assign({}, this.nodes[index], patch)
+    },
+    async saveNode(nodeId: string, patch: NodePatch) {
+      const node = this.nodes.find((item) => item.id === nodeId)
+      if (!node || !this.currentProjectId) return
+      this.saving = true
+      this.error = null
+      try {
+        const updated = await api.updateNode(node.scene_id, nodeId, patch)
+        this.updateNodeLocal(nodeId, updated)
+        await api.updateProject(this.currentProjectId, {})
+      } catch (error) {
+        this.error = toMessage(error)
+        throw error
+      } finally {
+        this.saving = false
+      }
+    },
+    async toggleNodeVisibility(nodeId: string) {
+      const node = this.nodes.find((item) => item.id === nodeId)
+      if (!node) return
+      this.startMutation()
+      this.updateNodeLocal(nodeId, { visible: !node.visible })
+      await this.saveNode(nodeId, { visible: !node.visible })
+    },
+    async toggleNodeLocked(nodeId: string) {
+      const node = this.nodes.find((item) => item.id === nodeId)
+      if (!node) return
+      this.startMutation()
+      this.updateNodeLocal(nodeId, { locked: !node.locked })
+      await this.saveNode(nodeId, { locked: !node.locked })
+    },
+    async commitNodeProperties(nodeId: string, patch: NodePatch) {
+      this.startMutation()
+      this.updateNodeLocal(nodeId, patch)
+      await this.saveNode(nodeId, patch)
+    },
+    async undo() {
+      if (!this.past.length) return
+      const previous = this.past.pop()
+      if (!previous) return
+      this.future.push(cloneNodes(this.nodes))
+      this.nodes = previous
+      await this.persistNodes(this.nodes)
+    },
+    async redo() {
+      if (!this.future.length) return
+      const next = this.future.pop()
+      if (!next) return
+      this.past.push(cloneNodes(this.nodes))
+      this.nodes = next
+      await this.persistNodes(this.nodes)
+    },
+    async persistNodes(nodes: SceneNode[]) {
+      if (!this.currentProjectId) return
+      this.saving = true
+      try {
+        for (const node of nodes) {
+          const current = this.nodes.find((item) => item.id === node.id)
+          if (!current) continue
+          await api.updateNode(node.scene_id, node.id, {
+            name: node.name,
+            visible: node.visible,
+            locked: node.locked,
+            opacity: node.opacity,
+            transform: node.transform,
+          })
+        }
+        await api.updateProject(this.currentProjectId, {})
+      } catch (error) {
+        this.error = toMessage(error)
+        throw error
+      } finally {
+        this.saving = false
+      }
+    },
     closeExportPreview() {
       if (this.exportPreviewUrl) URL.revokeObjectURL(this.exportPreviewUrl)
       this.exportPreviewUrl = null
@@ -240,6 +339,9 @@ export const useStudioStore = defineStore('studio', {
       this.currentProjectId = null
       this.scene = null
       this.nodes = []
+      this.selectedNodeId = null
+      this.past = []
+      this.future = []
       this.assets = []
       this.activeImportJob = null
       this.activeExportJob = null
@@ -248,6 +350,12 @@ export const useStudioStore = defineStore('studio', {
     },
   },
 })
+
+type NodePatch = Partial<Pick<SceneNode, 'name' | 'visible' | 'locked' | 'opacity' | 'transform'>>
+
+function cloneNodes(nodes: SceneNode[]): SceneNode[] {
+  return JSON.parse(JSON.stringify(nodes)) as SceneNode[]
+}
 
 function toMessage(error: unknown): string {
   if (error instanceof Error) return error.message

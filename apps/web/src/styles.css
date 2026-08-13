@@ -615,10 +615,27 @@ button:disabled {
   text-align: left;
 }
 
+.layer-row {
+  grid-template-columns: auto auto auto minmax(0, 1fr);
+  cursor: default;
+}
+
 .layer-row:hover,
 .asset-row:hover,
+.layer-row.selected,
 .asset-row.selected {
   background: #eef7f6;
+}
+
+.layer-toggle {
+  width: 24px;
+  height: 24px;
+}
+
+.layer-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .asset-name {
@@ -644,12 +661,10 @@ button:disabled {
 }
 
 .canvas-panel {
-  display: grid;
+  display: block;
   min-width: 0;
   min-height: 0;
-  place-items: center;
-  padding: 24px;
-  overflow: auto;
+  overflow: hidden;
   background-color: #dde3e9;
   background-image:
     linear-gradient(45deg, rgb(255 255 255 / 42%) 25%, transparent 25%),
@@ -663,6 +678,76 @@ button:disabled {
 .canvas-panel-empty {
   width: 100%;
   height: 100%;
+}
+
+.scene-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.canvas-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  transform: translateX(-50%);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 8px 22px rgb(27 40 52 / 14%);
+}
+
+.canvas-toolbar .icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 2px;
+  background: var(--border);
+}
+
+.zoom-label {
+  min-width: 42px;
+  color: #263340;
+  font-size: 12px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.canvas-viewport {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  cursor: default;
+  touch-action: none;
+}
+
+.canvas-viewport canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.canvas-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .canvas-stage {
@@ -743,6 +828,62 @@ button:disabled {
 
 .asset-properties .hash {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.node-properties dl {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 7px 10px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+
+.node-properties dt {
+  color: var(--muted);
+}
+
+.node-properties dd {
+  margin: 0;
+  color: #33404f;
+}
+
+.node-properties .property-input {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: 0;
+  background: #fff;
+  color: #263340;
+}
+
+.node-properties .property-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(14 157 145 / 12%);
+}
+
+.property-field {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.property-field label {
+  margin: 0;
+}
+
+.property-field .opacity-input {
+  padding: 0;
+  border: 0;
+}
+
+.property-value {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
 }
 
 .import-action {

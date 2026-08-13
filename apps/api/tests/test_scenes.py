@@ -16,3 +16,45 @@ def test_created_project_has_root_scene_and_node(
     assert nodes.status_code == 200
     assert any(node["type"] == "root" for node in nodes.json())
 
+
+def test_scene_node_properties_round_trip(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project = client.post(
+        "/api/v1/projects",
+        headers=auth_headers,
+        json={"name": "Scene Edit"},
+    ).json()
+    scene = client.get(f"/api/v1/projects/{project['id']}/scene", headers=auth_headers).json()
+
+    node = client.post(
+        f"/api/v1/projects/{project['id']}/scene/nodes",
+        headers=auth_headers,
+        json={
+            "parent_id": scene["root_node_id"],
+            "type": "image",
+            "name": "Button",
+            "transform": {"x": 24, "y": 18, "width": 72, "height": 26, "rotation": 0, "scale_x": 1, "scale_y": 1},
+        },
+    ).json()
+
+    update = client.patch(
+        f"/api/v1/scenes/{scene['id']}/nodes/{node['id']}",
+        headers=auth_headers,
+        json={
+            "name": "Button Edited",
+            "visible": False,
+            "locked": True,
+            "opacity": 0.4,
+            "transform": {"x": 40, "y": 32, "width": 88, "height": 30, "rotation": 15, "scale_x": 1, "scale_y": 1},
+        },
+    )
+    assert update.status_code == 200
+    body = update.json()
+    assert body["name"] == "Button Edited"
+    assert body["visible"] is False
+    assert body["locked"] is True
+    assert body["opacity"] == 0.4
+    assert body["transform"]["x"] == 40
+    assert body["transform"]["rotation"] == 15
