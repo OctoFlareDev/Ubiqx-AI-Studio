@@ -27,11 +27,13 @@ const activePanel = ref<'layers' | 'assets'>('layers')
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedAssetId = ref<string | null>(null)
 const saveState = ref<'idle' | 'saving' | 'saved'>('saved')
+const exportError = ref<string | null>(null)
 
 const selectedAsset = computed<Asset | null>(
   () => studio.assets.find((asset) => asset.id === selectedAssetId.value) ?? null,
 )
 const selectedAssetIsPhotoshop = computed(() => selectedAsset.value?.media_type === 'image/vnd.adobe.photoshop')
+const hasExportableNodes = computed(() => studio.nodes.some((node) => node.type !== 'root'))
 
 watch(
   () => project.value?.name,
@@ -98,7 +100,16 @@ function cancelImport() {
 
 async function exportProject() {
   if (!project.value) return
-  await studio.exportProject(project.value.id)
+  exportError.value = null
+  if (!hasExportableNodes.value) {
+    exportError.value = 'No layers to export. Import a PSD or PSB asset as a scene first.'
+    return
+  }
+  try {
+    await studio.exportProject(project.value.id)
+  } catch {
+    exportError.value = studio.error
+  }
 }
 
 async function previewExport() {
@@ -157,12 +168,26 @@ function nodeStyle(node: { transform: Record<string, number>; opacity: number; v
           <Upload :size="16" />
           Import
         </button>
-        <button class="primary-button" type="button" :disabled="studio.exporting || !studio.nodes.length" @click="exportProject">
+        <button
+          class="primary-button"
+          type="button"
+          :disabled="studio.exporting"
+          :title="hasExportableNodes ? 'Export HTML5 package' : 'No layers to export'"
+          @click="exportProject"
+        >
           <Download :size="16" />
           {{ studio.exporting ? 'Exporting' : 'Export' }}
         </button>
       </div>
     </header>
+
+    <div v-if="exportError" class="studio-status-banner error" role="alert">
+      <AlertTriangle :size="16" />
+      <span>{{ exportError }}</span>
+      <button class="icon-button subtle" type="button" aria-label="Dismiss export message" @click="exportError = null">
+        <X :size="14" />
+      </button>
+    </div>
 
     <div class="studio-body">
       <aside class="left-panel">

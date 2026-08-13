@@ -472,6 +472,22 @@ button:disabled {
   background: #fff;
 }
 
+.studio-status-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #f1c1ba;
+  background: #fff4f2;
+  color: #9d2f24;
+  font-size: 13px;
+}
+
+.studio-status-banner span {
+  flex: 1;
+}
+
 .project-title {
   display: flex;
   align-items: center;
