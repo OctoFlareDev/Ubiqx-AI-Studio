@@ -24,7 +24,13 @@ function openAssets() {
     </div>
 
     <nav class="primary-nav" aria-label="Primary navigation">
-      <button class="nav-item" :class="{ active: !studio.currentProjectId }" type="button" @click="showProjects">
+      <button
+        class="nav-item"
+        :class="{ active: !studio.currentProjectId }"
+        type="button"
+        aria-label="Projects"
+        @click="showProjects"
+      >
         <FolderKanban :size="18" />
         <span>Projects</span>
       </button>
@@ -32,6 +38,7 @@ function openAssets() {
         class="nav-item"
         :class="{ active: Boolean(studio.currentProjectId) && studio.activePanel === 'assets' }"
         type="button"
+        aria-label="Assets"
         title="Open the project asset library"
         @click="openAssets"
       >
@@ -48,4 +55,3 @@ function openAssets() {
     </div>
   </aside>
 </template>
-
