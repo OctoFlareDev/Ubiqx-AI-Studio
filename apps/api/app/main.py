@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from ipaddress import ip_address
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -265,7 +265,7 @@ def api_health() -> dict:
 
 
 @app.post("/api/v1/auth/bootstrap", response_model=BootstrapResponse)
-def bootstrap(request: Request, db: Session = Depends(get_db)) -> BootstrapResponse:
+def bootstrap(request: Request, response: Response, db: Session = Depends(get_db)) -> BootstrapResponse:
     client_host = request.client.host if request.client else ""
     try:
         is_loopback = ip_address(client_host).is_loopback
@@ -275,6 +275,14 @@ def bootstrap(request: Request, db: Session = Depends(get_db)) -> BootstrapRespo
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="remote_bootstrap_disabled")
     user = get_or_create_local_user(db)
     key, raw_key = create_api_key(db, user)
+    response.set_cookie(
+        "ubiqx_session",
+        raw_key,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        max_age=60 * 60 * 24 * 30,
+    )
     return BootstrapResponse(user=ProfileRead.model_validate(user), api_key=raw_key)
 
 

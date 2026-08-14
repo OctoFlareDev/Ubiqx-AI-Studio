@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Cookie, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
 from .db import get_db
@@ -19,9 +19,10 @@ class AuthContext:
 
 def get_auth_context(
     authorization: str | None = Header(default=None),
+    session_key: str | None = Cookie(default=None, alias="ubiqx_session"),
     db: Session = Depends(get_db),
 ) -> AuthContext:
-    raw_key = ""
+    raw_key = session_key or ""
     if authorization and authorization.startswith("Bearer "):
         raw_key = authorization.removeprefix("Bearer ").strip()
     result = verify_api_key(db, raw_key)

@@ -11,9 +11,8 @@ import type {
 } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? '/api/v1'
-const TOKEN_KEY = 'ubiqx.local-api-key'
 
-let accessToken = localStorage.getItem(TOKEN_KEY) ?? ''
+let accessToken = ''
 
 export class ApiError extends Error {
   status: number
@@ -36,14 +35,13 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
     headers.set('Content-Type', 'application/json')
   }
 
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers })
+  const response = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: 'include' })
   if (response.status === 204) {
     return undefined as T
   }
   if (!response.ok) {
     if (response.status === 401 && retry && !path.startsWith('/auth/bootstrap')) {
       accessToken = ''
-      localStorage.removeItem(TOKEN_KEY)
       await ensureSession()
       return request<T>(path, init, false)
     }
@@ -62,6 +60,7 @@ async function request<T>(path: string, init: RequestInit = {}, retry = true): P
 async function requestBlob(path: string): Promise<Blob> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    credentials: 'include',
   })
   if (!response.ok) {
     throw await responseError(response)
@@ -72,6 +71,7 @@ async function requestBlob(path: string): Promise<Blob> {
 async function requestText(path: string): Promise<string> {
   const response = await fetch(`${API_BASE}${path}`, {
     headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+    credentials: 'include',
   })
   if (!response.ok) {
     throw await responseError(response)
@@ -99,12 +99,10 @@ export async function ensureSession(): Promise<Profile> {
       return await request<Profile>('/auth/profile', {}, false)
     } catch {
       accessToken = ''
-      localStorage.removeItem(TOKEN_KEY)
     }
   }
   const result = await request<{ user: Profile; api_key: string }>('/auth/bootstrap', { method: 'POST' }, false)
-  accessToken = result.api_key
-  localStorage.setItem(TOKEN_KEY, accessToken)
+  accessToken = ''
   return result.user
 }
 
