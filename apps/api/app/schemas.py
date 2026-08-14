@@ -200,7 +200,7 @@ class SceneNodeRead(ORMModel):
 
 class ImportCreate(BaseModel):
     source_asset_id: str
-    adapter: Literal["psd"] = "psd"
+    adapter: Literal["psd", "raster", "svg"] = "psd"
 
 
 class ImportJobRead(ORMModel):

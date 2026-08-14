@@ -43,6 +43,13 @@ const selectedAssetIsPhotoshop = computed(() => selectedAsset.value?.media_type 
 const selectedAssetIsRaster = computed(() =>
   selectedAsset.value ? ['image/png', 'image/jpeg', 'image/webp'].includes(selectedAsset.value.media_type) : false,
 )
+const selectedAssetIsSvg = computed(() => selectedAsset.value?.media_type === 'image/svg+xml')
+const selectedAssetIsImportable = computed(() => selectedAssetIsPhotoshop.value || selectedAssetIsRaster.value || selectedAssetIsSvg.value)
+const selectedAssetImportAdapter = computed<'psd' | 'raster' | 'svg'>(() => {
+  if (selectedAssetIsPhotoshop.value) return 'psd'
+  if (selectedAssetIsSvg.value) return 'svg'
+  return 'raster'
+})
 const hasExportableNodes = computed(() => studio.nodes.some((node) => node.type !== 'root'))
 const layerRows = computed(() => {
   const rows: Array<{ node: SceneNode; depth: number }> = []
@@ -150,7 +157,7 @@ async function removeSelectedAsset() {
 
 async function importSelectedAsset() {
   if (!project.value || !selectedAsset.value) return
-  await runAction(() => studio.importSourceAsset(project.value!.id, selectedAsset.value!.id))
+  await runAction(() => studio.importSourceAsset(project.value!.id, selectedAsset.value!.id, selectedAssetImportAdapter.value))
 }
 
 function cancelImport() {
@@ -561,7 +568,7 @@ function handlePreviewKeydown(event: KeyboardEvent) {
               Cancel
             </button>
           </div>
-          <div v-if="selectedAssetIsPhotoshop" class="import-action">
+          <div v-if="selectedAssetIsImportable" class="import-action">
             <button
               class="primary-button compact-action"
               type="button"

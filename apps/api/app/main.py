@@ -731,7 +731,12 @@ def create_import_job(
     source_asset = get_asset(payload.source_asset_id, user, db)
     if source_asset.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="asset_not_found")
-    if source_asset.media_type != "image/vnd.adobe.photoshop":
+    allowed_sources = {
+        "psd": {"image/vnd.adobe.photoshop"},
+        "raster": {"image/png", "image/jpeg", "image/webp"},
+        "svg": {"image/svg+xml"},
+    }
+    if source_asset.media_type not in allowed_sources[payload.adapter]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported_import_source")
     job = ImportJob(
         id=str(uuid.uuid4()),

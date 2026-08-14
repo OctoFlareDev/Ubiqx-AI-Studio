@@ -95,6 +95,30 @@ def test_import_psb_uses_same_adapter(client: TestClient, auth_headers: dict[str
     assert job["status"] == "succeeded"
 
 
+def test_import_raster_asset_creates_image_node(client: TestClient, auth_headers: dict[str, str]) -> None:
+    project_id = _create_project(client, auth_headers)
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+    upload = client.post(
+        f"/api/v1/projects/{project_id}/assets",
+        headers=auth_headers,
+        files={"file": ("button.png", png, "image/png")},
+    )
+    assert upload.status_code == 201
+    import_response = client.post(
+        f"/api/v1/projects/{project_id}/imports",
+        headers=auth_headers,
+        json={"source_asset_id": upload.json()["id"], "adapter": "raster"},
+    )
+    assert import_response.status_code == 201
+    job = _wait_for_terminal(client, auth_headers, import_response.json()["id"])
+    assert job["status"] == "succeeded"
+
+    scene = client.get(f"/api/v1/projects/{project_id}/scene", headers=auth_headers).json()
+    nodes = client.get(f"/api/v1/scenes/{scene['id']}/nodes", headers=auth_headers).json()
+    image = next(node for node in nodes if node["type"] == "image")
+    assert image["asset_id"] == upload.json()["id"]
+
+
 def test_failed_import_does_not_replace_scene(
     client: TestClient,
     auth_headers: dict[str, str],
@@ -141,4 +165,3 @@ def test_cancel_queued_import(client: TestClient, auth_headers: dict[str, str], 
 
     get_response = client.get(f"/api/v1/imports/{import_id}", headers=auth_headers)
     assert get_response.json()["status"] == "cancelled"
-

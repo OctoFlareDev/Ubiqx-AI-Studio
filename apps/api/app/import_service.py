@@ -276,8 +276,11 @@ def run_import_job(job_id: str) -> None:
         if project is None:
             raise ImportFailure("project_missing")
 
-        parser = PSDImportParser(source_name=Path(source_asset.original_name).stem)
-        parsed = parser.parse(Path(source_asset.storage_path))
+        if job.adapter == "psd":
+            parser = PSDImportParser(source_name=Path(source_asset.original_name).stem)
+            parsed = parser.parse(Path(source_asset.storage_path))
+        else:
+            parsed = _raster_document(source_asset)
         if job_timed_out(job.started_at, job.created_at):
             raise ImportFailure("job_timeout")
         job.progress = 0.6
@@ -358,6 +361,46 @@ def _materialize_document(
             asset_cache=asset_cache,
             order_index=order_index,
         )
+
+
+def _raster_document(source_asset: Asset) -> ParsedDocument:
+    width = float(source_asset.width or 512)
+    height = float(source_asset.height or 512)
+    node = ParsedNode(
+        type="image",
+        name=Path(source_asset.original_name).stem or "Image",
+        visible=True,
+        locked=False,
+        opacity=1,
+        transform={
+            "x": 0,
+            "y": 0,
+            "width": width,
+            "height": height,
+            "rotation": 0,
+            "scale_x": 1,
+            "scale_y": 1,
+        },
+    )
+    node.asset = ParsedAsset(
+        content_hash=source_asset.content_hash,
+        media_type=source_asset.media_type,
+        original_name=source_asset.original_name,
+        byte_size=source_asset.byte_size,
+        storage_path=source_asset.storage_path,
+        width=round(width),
+        height=round(height),
+    )
+    root = ParsedNode(
+        type="root",
+        name="Root",
+        visible=True,
+        locked=False,
+        opacity=1,
+        transform={"x": 0, "y": 0, "width": width, "height": height, "rotation": 0, "scale_x": 1, "scale_y": 1},
+        children=[node],
+    )
+    return ParsedDocument(width=width, height=height, root=root)
 
 
 def _persist_node_tree(

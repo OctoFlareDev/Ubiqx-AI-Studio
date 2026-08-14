@@ -164,10 +164,10 @@ export const api = {
     return request<Asset>(`/projects/${projectId}/assets`, { method: 'POST', body: form })
   },
   deleteAsset: (assetId: string) => request<void>(`/assets/${assetId}`, { method: 'DELETE' }),
-  createImport: (projectId: string, sourceAssetId: string) =>
+  createImport: (projectId: string, sourceAssetId: string, adapter: 'psd' | 'raster' | 'svg' = 'psd') =>
     request<ImportJob>(`/projects/${projectId}/imports`, {
       method: 'POST',
-      body: JSON.stringify({ source_asset_id: sourceAssetId, adapter: 'psd' }),
+      body: JSON.stringify({ source_asset_id: sourceAssetId, adapter }),
     }),
   getImport: (importId: string) => request<ImportJob>(`/imports/${importId}`),
   cancelImport: (importId: string) =>

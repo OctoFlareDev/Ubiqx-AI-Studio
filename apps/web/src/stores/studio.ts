@@ -188,11 +188,11 @@ export const useStudioStore = defineStore('studio', {
       await api.deleteAsset(assetId)
       this.assets = this.assets.filter((asset) => asset.id !== assetId)
     },
-    async importSourceAsset(projectId: string, sourceAssetId: string) {
+    async importSourceAsset(projectId: string, sourceAssetId: string, adapter: 'psd' | 'raster' | 'svg' = 'psd') {
       this.importing = true
       this.error = null
       try {
-        this.activeImportJob = await api.createImport(projectId, sourceAssetId)
+        this.activeImportJob = await api.createImport(projectId, sourceAssetId, adapter)
         const job = await this.pollImport(this.activeImportJob.id)
         if (job.status === 'succeeded') {
           await this.openProject(projectId)
