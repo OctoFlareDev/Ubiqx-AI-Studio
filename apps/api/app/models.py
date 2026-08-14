@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -172,3 +172,19 @@ class AiTask(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class IdempotencyRecord(Base):
+    __tablename__ = "idempotency_records"
+    __table_args__ = (UniqueConstraint("scope_hash", "key", "method", "path", name="uq_idempotency_request"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    scope_hash: Mapped[str] = mapped_column(String(64), index=True)
+    key: Mapped[str] = mapped_column(String(255))
+    method: Mapped[str] = mapped_column(String(16))
+    path: Mapped[str] = mapped_column(String(512))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    status_code: Mapped[int] = mapped_column(Integer)
+    response_body: Mapped[str] = mapped_column(Text, default="")
+    response_headers: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

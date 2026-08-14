@@ -117,3 +117,21 @@ def test_project_updates_require_a_fresh_version_when_supplied(
     )
     assert stale.status_code == 409
     assert stale.json()["error"]["code"] == "stale_version"
+
+
+def test_idempotency_key_replays_a_mutation_and_rejects_payload_changes(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    headers = {**auth_headers, "Idempotency-Key": "project-create-1"}
+    first = client.post("/api/v1/projects", headers=headers, json={"name": "Exactly Once"})
+    assert first.status_code == 201
+
+    replay = client.post("/api/v1/projects", headers=headers, json={"name": "Exactly Once"})
+    assert replay.status_code == 201
+    assert replay.headers["idempotent-replayed"] == "true"
+    assert replay.json()["id"] == first.json()["id"]
+
+    changed = client.post("/api/v1/projects", headers=headers, json={"name": "Different Payload"})
+    assert changed.status_code == 409
+    assert changed.json()["error"]["code"] == "idempotency_key_reused"

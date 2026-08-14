@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from ipaddress import ip_address
 from pathlib import Path
 
@@ -14,7 +16,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select, text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -26,7 +28,7 @@ from .ops import reconcile_incomplete_jobs
 from .ai_service import CANCELLATION_REQUESTS as AI_CANCELLATION_REQUESTS, run_ai_task
 from .export_service import run_export_job, scene_has_exportable_nodes
 from .import_service import CANCELLATION_REQUESTS, run_import_job
-from .models import AiTask, ApiKey, Asset, ExportJob, ImportJob, LocalUser, Project, Scene, SceneNode
+from .models import AiTask, ApiKey, Asset, ExportJob, IdempotencyRecord, ImportJob, LocalUser, Project, Scene, SceneNode
 from .rate_limit import SlidingWindowRateLimiter, rate_limit_key
 from .schemas import (
     AiTaskCreate,
@@ -140,6 +142,116 @@ async def request_logging_middleware(request: Request, call_next):
         },
     )
     return response
+
+
+@app.middleware("http")
+async def idempotency_middleware(request: Request, call_next):
+    if request.method not in {"POST", "PATCH", "PUT", "DELETE"} or not request.url.path.startswith("/api/v1"):
+        return await call_next(request)
+
+    key = request.headers.get("Idempotency-Key")
+    if key is None:
+        return await call_next(request)
+    key = key.strip()
+    request_id = getattr(request.state, "request_id", None) or f"req_{uuid.uuid4().hex}"
+    if not key or len(key) > 255:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": {
+                    "code": "invalid_idempotency_key",
+                    "message": "Idempotency-Key must contain between 1 and 255 characters.",
+                    "request_id": request_id,
+                }
+            },
+        )
+
+    body = await request.body()
+    request_hash = hashlib.sha256(body).hexdigest()
+    scope_material = request.headers.get("Authorization", "") + "\n" + request.headers.get("Cookie", "")
+    scope_hash = hashlib.sha256(scope_material.encode("utf-8")).hexdigest()
+    session = None
+    try:
+        from .db import SessionLocal
+
+        session = SessionLocal()
+        record = session.scalar(
+            select(IdempotencyRecord).where(
+                IdempotencyRecord.scope_hash == scope_hash,
+                IdempotencyRecord.key == key,
+                IdempotencyRecord.method == request.method,
+                IdempotencyRecord.path == request.url.path,
+            )
+        )
+        if record is not None:
+            created_at = record.created_at.replace(tzinfo=timezone.utc) if record.created_at.tzinfo is None else record.created_at
+            if created_at >= _now() - timedelta(seconds=settings.idempotency_retention_seconds):
+                if record.request_hash != request_hash:
+                    return JSONResponse(
+                        status_code=status.HTTP_409_CONFLICT,
+                        content={
+                            "error": {
+                                "code": "idempotency_key_reused",
+                                "message": "The idempotency key was already used for a different request.",
+                                "request_id": request_id,
+                            }
+                        },
+                    )
+                headers = dict(record.response_headers or {})
+                headers["Idempotent-Replayed"] = "true"
+                return Response(
+                    content=record.response_body.encode("utf-8"),
+                    status_code=record.status_code,
+                    headers=headers,
+                )
+            session.delete(record)
+            session.commit()
+    finally:
+        if session is not None:
+            session.close()
+
+    response = await call_next(request)
+    if response.status_code < 200 or response.status_code >= 300:
+        return response
+
+    if hasattr(response, "body") and response.body is not None:
+        response_body = response.body
+    else:
+        chunks = [chunk async for chunk in response.body_iterator]
+        response_body = b"".join(chunks)
+    stored_headers = {
+        name: value
+        for name, value in response.headers.items()
+        if name.lower() in {"content-type", "content-disposition", "etag"}
+    }
+    from .db import SessionLocal
+
+    session = SessionLocal()
+    try:
+        session.add(
+            IdempotencyRecord(
+                id=str(uuid.uuid4()),
+                scope_hash=scope_hash,
+                key=key,
+                method=request.method,
+                path=request.url.path,
+                request_hash=request_hash,
+                status_code=response.status_code,
+                response_body=response_body.decode("utf-8"),
+                response_headers=stored_headers,
+            )
+        )
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+    finally:
+        session.close()
+    return Response(
+        content=response_body,
+        status_code=response.status_code,
+        headers=dict(response.headers),
+        background=response.background,
+    )
 
 
 def _request_id(request: Request) -> str | None:
