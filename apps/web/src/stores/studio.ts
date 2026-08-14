@@ -98,28 +98,48 @@ export const useStudioStore = defineStore('studio', {
       }
     },
     async renameProject(projectId: string, name: string) {
-      const current = this.projects.find((item) => item.id === projectId)
-      const project = await api.updateProject(projectId, { name }, current?.version)
-      const index = this.projects.findIndex((item) => item.id === projectId)
-      if (index >= 0) this.projects[index] = project
-      this.error = null
+      try {
+        const current = this.projects.find((item) => item.id === projectId)
+        const project = await api.updateProject(projectId, { name }, current?.version)
+        const index = this.projects.findIndex((item) => item.id === projectId)
+        if (index >= 0) this.projects[index] = project
+        this.error = null
+      } catch (error) {
+        this.error = toMessage(error)
+        throw error
+      }
     },
     async archiveProject(projectId: string) {
-      const current = this.projects.find((item) => item.id === projectId)
-      await api.archiveProject(projectId, current?.version)
-      await this.loadProjects()
-      if (this.currentProjectId === projectId) this.currentProjectId = null
+      try {
+        const current = this.projects.find((item) => item.id === projectId)
+        await api.archiveProject(projectId, current?.version)
+        await this.loadProjects()
+        if (this.currentProjectId === projectId) this.currentProjectId = null
+      } catch (error) {
+        this.error = toMessage(error)
+        throw error
+      }
     },
     async restoreProject(projectId: string) {
-      const current = this.archivedProjects.find((item) => item.id === projectId)
-      await api.restoreProject(projectId, current?.version)
-      await this.loadProjects()
+      try {
+        const current = this.archivedProjects.find((item) => item.id === projectId)
+        await api.restoreProject(projectId, current?.version)
+        await this.loadProjects()
+      } catch (error) {
+        this.error = toMessage(error)
+        throw error
+      }
     },
     async deleteProject(projectId: string) {
-      const current = this.projects.find((item) => item.id === projectId)
-      await api.deleteProject(projectId, current?.version)
-      await this.loadProjects()
-      if (this.currentProjectId === projectId) this.currentProjectId = null
+      try {
+        const current = this.projects.find((item) => item.id === projectId)
+        await api.deleteProject(projectId, current?.version)
+        await this.loadProjects()
+        if (this.currentProjectId === projectId) this.currentProjectId = null
+      } catch (error) {
+        this.error = toMessage(error)
+        throw error
+      }
     },
     async openProject(projectId: string) {
       this.loading = true

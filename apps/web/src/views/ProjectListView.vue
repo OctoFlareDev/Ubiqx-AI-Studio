@@ -27,8 +27,10 @@ function startCreate() {
 async function createProject() {
   const name = newProjectName.value.trim() || 'Untitled Project'
   try {
-    const project = await studio.createProject(name)
-    await studio.openProject(project.id)
+    await runAction(async () => {
+      const project = await studio.createProject(name)
+      await studio.openProject(project.id)
+    })
   } finally {
     creating.value = false
     newProjectName.value = ''
@@ -40,19 +42,27 @@ async function openProject(projectId: string) {
 }
 
 async function renameProject(projectId: string, name: string) {
-  await studio.renameProject(projectId, name)
+  await runAction(() => studio.renameProject(projectId, name))
 }
 
 async function archiveProject(projectId: string) {
-  await studio.archiveProject(projectId)
+  await runAction(() => studio.archiveProject(projectId))
 }
 
 async function deleteProject(projectId: string) {
-  if (window.confirm('Delete this project?')) await studio.deleteProject(projectId)
+  if (window.confirm('Delete this project?')) await runAction(() => studio.deleteProject(projectId))
 }
 
 async function restoreProject(projectId: string) {
-  await studio.restoreProject(projectId)
+  await runAction(() => studio.restoreProject(projectId))
+}
+
+async function runAction(action: () => Promise<unknown>) {
+  try {
+    await action()
+  } catch {
+    // Store actions put a user-facing message in studio.error.
+  }
 }
 </script>
 
