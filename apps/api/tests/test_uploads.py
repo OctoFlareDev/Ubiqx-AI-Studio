@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
 
+from app.config import settings
+
 
 PNG_BYTES = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
@@ -32,6 +34,21 @@ def test_upload_and_deduplicate_png(client: TestClient, auth_headers: dict[str, 
     download = client.get(f"/api/v1/assets/{first_body['id']}/content", headers=auth_headers)
     assert download.status_code == 200
     assert download.content == PNG_BYTES
+
+
+def test_duplicate_upload_removes_temporary_source(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    before = {path.name for path in settings.tmp_dir.iterdir()}
+    files = {"file": ("duplicate.png", PNG_BYTES, "image/png")}
+    first = client.post(f"/api/v1/projects/{project_id}/assets", headers=auth_headers, files=files)
+    assert first.status_code == 201
+    second = client.post(f"/api/v1/projects/{project_id}/assets", headers=auth_headers, files=files)
+    assert second.status_code == 201
+    after = {path.name for path in settings.tmp_dir.iterdir()}
+    assert after == before
 
 
 def test_upload_rejects_wrong_extension(client: TestClient, auth_headers: dict[str, str]) -> None:

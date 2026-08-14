@@ -43,8 +43,11 @@ def _safe_original_name(name: str) -> str:
 def _persist(data_dir: Path, content_hash: str, source: Path) -> Path:
     destination = data_dir / content_hash[:2] / content_hash
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if not destination.exists():
-        shutil.move(str(source), destination)
+    try:
+        if not destination.exists():
+            shutil.move(str(source), destination)
+    finally:
+        source.unlink(missing_ok=True)
     return destination
 
 
