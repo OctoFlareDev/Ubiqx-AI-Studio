@@ -21,7 +21,7 @@ interface StudioState {
   exporting: boolean
   aiProcessing: boolean
   saving: boolean
-  exportPreviewUrl: string | null
+  exportPreviewHtml: string | null
   activePanel: 'layers' | 'assets'
   loading: boolean
   error: string | null
@@ -46,7 +46,7 @@ export const useStudioStore = defineStore('studio', {
     exporting: false,
     aiProcessing: false,
     saving: false,
-    exportPreviewUrl: null,
+    exportPreviewHtml: null,
     activePanel: 'layers',
     loading: false,
     error: null,
@@ -238,8 +238,7 @@ export const useStudioStore = defineStore('studio', {
     },
     async loadExportPreview(exportId: string) {
       const html = await api.getExportPreview(exportId)
-      if (this.exportPreviewUrl) URL.revokeObjectURL(this.exportPreviewUrl)
-      this.exportPreviewUrl = URL.createObjectURL(new Blob([html], { type: 'text/html' }))
+      this.exportPreviewHtml = html
     },
     async downloadExport(exportId: string) {
       const blob = await api.downloadExport(exportId)
@@ -375,8 +374,7 @@ export const useStudioStore = defineStore('studio', {
       }
     },
     closeExportPreview() {
-      if (this.exportPreviewUrl) URL.revokeObjectURL(this.exportPreviewUrl)
-      this.exportPreviewUrl = null
+      this.exportPreviewHtml = null
     },
     closeProject() {
       this.currentProjectId = null

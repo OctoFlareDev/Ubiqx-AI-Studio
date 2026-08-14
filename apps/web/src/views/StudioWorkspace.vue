@@ -516,7 +516,7 @@ function formatBytes(value: number): string {
 
     <input ref="fileInput" class="visually-hidden" type="file" accept=".psd,.psb,.png,.jpg,.jpeg,.webp,.svg" @change="onFileSelected" />
 
-    <div v-if="studio.exportPreviewUrl" class="preview-modal-backdrop" @click.self="studio.closeExportPreview">
+    <div v-if="studio.exportPreviewHtml" class="preview-modal-backdrop" @click.self="studio.closeExportPreview">
       <section class="preview-modal" role="dialog" aria-modal="true" aria-label="HTML5 export preview">
         <header class="preview-modal-header">
           <div>
@@ -527,7 +527,7 @@ function formatBytes(value: number): string {
             <X :size="18" />
           </button>
         </header>
-        <iframe :src="studio.exportPreviewUrl" title="HTML5 export preview" />
+        <iframe :srcdoc="studio.exportPreviewHtml" title="HTML5 export preview" />
       </section>
     </div>
   </div>
