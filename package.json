@@ -17,7 +17,5 @@
   "devDependencies": {
     "@playwright/test": "^1.55.0"
   },
-  "dependencies": {
-    "canvaskit-wasm": "^0.41.1"
-  }
+  "dependencies": {}
 }
