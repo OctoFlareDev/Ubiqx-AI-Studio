@@ -91,7 +91,17 @@ async function deleteProject(projectId: string) {
       <div v-for="index in 4" :key="index" class="project-skeleton" />
     </div>
 
-    <EmptyProjectState v-else-if="filteredProjects.length === 0" @create="startCreate" />
+    <EmptyProjectState v-else-if="studio.projects.length === 0" @create="startCreate" />
+
+    <section v-else-if="filteredProjects.length === 0" class="no-results-state" aria-live="polite">
+      <Search :size="24" />
+      <h2>No matching projects</h2>
+      <p>Try a different search term or clear the filter.</p>
+      <button class="secondary-button" type="button" @click="query = ''">
+        <X :size="16" />
+        Clear search
+      </button>
+    </section>
 
     <section v-else class="project-grid" aria-label="Project list">
       <ProjectCard
@@ -106,4 +116,3 @@ async function deleteProject(projectId: string) {
     </section>
   </div>
 </template>
-
