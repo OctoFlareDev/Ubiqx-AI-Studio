@@ -11,9 +11,18 @@ import type { SceneNode } from '@/types'
 type SkSurface = NonNullable<ReturnType<CanvasKit['MakeSWCanvasSurface']>>
 type SkImage = NonNullable<ReturnType<CanvasKit['MakeImageFromEncoded']>>
 
-interface AbsTransform {
+type Matrix = [number, number, number, number, number, number]
+
+interface Point {
   x: number
   y: number
+}
+
+interface AbsTransform {
+  matrix: Matrix
+  inverse: Matrix
+  parentMatrix: Matrix
+  corners: [Point, Point, Point, Point]
   width: number
   height: number
 }
@@ -30,6 +39,8 @@ const spacePressed = ref(false)
 const images = new Map<string, SkImage>()
 const absTransforms = new Map<string, AbsTransform>()
 
+const IDENTITY_MATRIX: Matrix = [1, 0, 0, 1, 0, 0]
+
 let drawQueued = false
 let interaction:
   | {
@@ -38,6 +49,10 @@ let interaction:
       startSceneX: number
       startSceneY: number
       startTransform?: Record<string, number>
+      startLocalX?: number
+      startLocalY?: number
+      startParentInverse?: Matrix
+      startNodeInverse?: Matrix
       handle?: ResizeHandle
     }
   | null = null
@@ -166,14 +181,14 @@ function draw() {
   drawOriginMarker(canvas)
 
   absTransforms.clear()
-  const rootTransform = { x: 0, y: 0, width: 0, height: 0 }
+  const rootTransform = makeAbsTransform(IDENTITY_MATRIX, IDENTITY_MATRIX, 0, 0)
   const children = childrenOf(currentScene.root_node_id)
   for (const node of children) drawNode(canvas, node, rootTransform)
 
   const selected = selectedNode.value
   const selectedAbs = selected ? absTransforms.get(selected.id) : null
-  if (selected && selectedAbs && !selected.locked) {
-    drawSelection(canvas, selectedAbs)
+  if (selected && selectedAbs) {
+    drawSelection(canvas, selectedAbs, !selected.locked)
   }
 
   canvas.restore()
@@ -192,12 +207,8 @@ function drawNode(canvas: Canvas, node: SceneNode, parentAbs: AbsTransform) {
   const transform = node.transform || {}
   const width = transform.width ?? 0
   const height = transform.height ?? 0
-  const abs = {
-    x: parentAbs.x + (transform.x ?? 0),
-    y: parentAbs.y + (transform.y ?? 0),
-    width,
-    height,
-  }
+  const localMatrix = matrixFromTransform(transform)
+  const abs = makeAbsTransform(parentAbs.matrix, localMatrix, width, height)
   absTransforms.set(node.id, abs)
 
   canvas.save()
@@ -231,6 +242,79 @@ function drawNode(canvas: Canvas, node: SceneNode, parentAbs: AbsTransform) {
   canvas.restore()
 }
 
+function matrixFromTransform(transform: Record<string, number>): Matrix {
+  const rotation = ((transform.rotation ?? 0) * Math.PI) / 180
+  const cos = Math.cos(rotation)
+  const sin = Math.sin(rotation)
+  const scaleX = transform.scale_x ?? 1
+  const scaleY = transform.scale_y ?? 1
+  return [
+    cos * scaleX,
+    sin * scaleX,
+    -sin * scaleY,
+    cos * scaleY,
+    transform.x ?? 0,
+    transform.y ?? 0,
+  ]
+}
+
+function multiplyMatrix(left: Matrix, right: Matrix): Matrix {
+  return [
+    left[0] * right[0] + left[2] * right[1],
+    left[1] * right[0] + left[3] * right[1],
+    left[0] * right[2] + left[2] * right[3],
+    left[1] * right[2] + left[3] * right[3],
+    left[0] * right[4] + left[2] * right[5] + left[4],
+    left[1] * right[4] + left[3] * right[5] + left[5],
+  ]
+}
+
+function invertMatrix(matrix: Matrix): Matrix {
+  const [a, b, c, d, e, f] = matrix
+  const determinant = a * d - b * c
+  if (Math.abs(determinant) < 1e-8) return [...IDENTITY_MATRIX]
+  const inverse = 1 / determinant
+  return [
+    d * inverse,
+    -b * inverse,
+    -c * inverse,
+    a * inverse,
+    (c * f - d * e) * inverse,
+    (b * e - a * f) * inverse,
+  ]
+}
+
+function applyMatrix(matrix: Matrix, point: Point): Point {
+  return {
+    x: matrix[0] * point.x + matrix[2] * point.y + matrix[4],
+    y: matrix[1] * point.x + matrix[3] * point.y + matrix[5],
+  }
+}
+
+function applyVector(matrix: Matrix, vector: Point): Point {
+  return {
+    x: matrix[0] * vector.x + matrix[2] * vector.y,
+    y: matrix[1] * vector.x + matrix[3] * vector.y,
+  }
+}
+
+function makeAbsTransform(parentMatrix: Matrix, localMatrix: Matrix, width: number, height: number): AbsTransform {
+  const matrix = multiplyMatrix(parentMatrix, localMatrix)
+  return {
+    matrix,
+    inverse: invertMatrix(matrix),
+    parentMatrix,
+    corners: [
+      applyMatrix(matrix, { x: 0, y: 0 }),
+      applyMatrix(matrix, { x: width, y: 0 }),
+      applyMatrix(matrix, { x: width, y: height }),
+      applyMatrix(matrix, { x: 0, y: height }),
+    ],
+    width,
+    height,
+  }
+}
+
 function drawText(canvas: Canvas, node: SceneNode, width: number, height: number) {
   const ck = canvasKit.value
   if (!ck) return
@@ -260,30 +344,30 @@ function drawOriginMarker(canvas: Canvas) {
   marker.delete()
 }
 
-function drawSelection(canvas: Canvas, abs: AbsTransform) {
+function drawSelection(canvas: Canvas, abs: AbsTransform, showHandles: boolean) {
   const ck = canvasKit.value
   if (!ck) return
   const outline = new ck.Paint()
   outline.setColor(ck.Color(14, 157, 145, 255))
   outline.setStyle(ck.PaintStyle.Stroke)
   outline.setStrokeWidth(1.5 / zoom.value)
-  canvas.drawRect(ck.XYWHRect(abs.x, abs.y, abs.width, abs.height), outline)
+  for (let index = 0; index < abs.corners.length; index += 1) {
+    const start = abs.corners[index]!
+    const end = abs.corners[(index + 1) % abs.corners.length]!
+    canvas.drawLine(start.x, start.y, end.x, end.y, outline)
+  }
   outline.delete()
+
+  if (!showHandles) return
 
   const fill = new ck.Paint()
   fill.setColor(ck.Color(255, 255, 255, 255))
   const handle = new ck.Paint()
   handle.setColor(ck.Color(14, 157, 145, 255))
   const size = 6 / zoom.value
-  const corners: Array<[number, number]> = [
-    [abs.x, abs.y],
-    [abs.x + abs.width, abs.y],
-    [abs.x, abs.y + abs.height],
-    [abs.x + abs.width, abs.y + abs.height],
-  ]
-  for (const [x, y] of corners) {
-    canvas.drawRect(ck.XYWHRect(x - size / 2, y - size / 2, size, size), fill)
-    canvas.drawRect(ck.XYWHRect(x - size / 2, y - size / 2, size, size), handle)
+  for (const corner of abs.corners) {
+    canvas.drawRect(ck.XYWHRect(corner.x - size / 2, corner.y - size / 2, size, size), fill)
+    canvas.drawRect(ck.XYWHRect(corner.x - size / 2, corner.y - size / 2, size, size), handle)
   }
   fill.delete()
   handle.delete()
@@ -305,12 +389,8 @@ function hitTest(point: { x: number; y: number }) {
   for (const node of ordered) {
     const abs = absTransforms.get(node.id)
     if (!abs) continue
-    if (
-      point.x >= abs.x &&
-      point.x <= abs.x + abs.width &&
-      point.y >= abs.y &&
-      point.y <= abs.y + abs.height
-    ) {
+    const local = applyMatrix(abs.inverse, point)
+    if (local.x >= 0 && local.x <= abs.width && local.y >= 0 && local.y <= abs.height) {
       return node
     }
   }
@@ -319,19 +399,36 @@ function hitTest(point: { x: number; y: number }) {
 
 function resizeHandleAt(point: { x: number; y: number }, abs: AbsTransform): ResizeHandle | null {
   const tolerance = 8 / zoom.value
-  const near = (a: number, b: number) => Math.abs(a - b) <= tolerance
-  const left = near(point.x, abs.x)
-  const right = near(point.x, abs.x + abs.width)
-  const top = near(point.y, abs.y)
-  const bottom = near(point.y, abs.y + abs.height)
-  if (left && top) return 'nw'
-  if (right && top) return 'ne'
-  if (left && bottom) return 'sw'
-  if (right && bottom) return 'se'
-  if (left) return 'w'
-  if (right) return 'e'
-  if (top) return 'n'
-  if (bottom) return 's'
+  const toleranceSquared = tolerance * tolerance
+  const distanceSquared = (a: Point, b: Point) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2
+  const distanceToSegmentSquared = (pointA: Point, start: Point, end: Point) => {
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    if (dx === 0 && dy === 0) return distanceSquared(pointA, start)
+    const lengthSquared = dx * dx + dy * dy
+    const projection = Math.max(0, Math.min(1, ((pointA.x - start.x) * dx + (pointA.y - start.y) * dy) / lengthSquared))
+    return distanceSquared(pointA, { x: start.x + projection * dx, y: start.y + projection * dy })
+  }
+
+  const cornerHandles: Array<[ResizeHandle, Point]> = [
+    ['nw', abs.corners[0]],
+    ['ne', abs.corners[1]],
+    ['se', abs.corners[2]],
+    ['sw', abs.corners[3]],
+  ]
+  for (const [handle, corner] of cornerHandles) {
+    if (distanceSquared(point, corner) <= toleranceSquared) return handle
+  }
+
+  const edgeHandles: Array<[ResizeHandle, Point, Point]> = [
+    ['n', abs.corners[0], abs.corners[1]],
+    ['e', abs.corners[1], abs.corners[2]],
+    ['s', abs.corners[2], abs.corners[3]],
+    ['w', abs.corners[3], abs.corners[0]],
+  ]
+  for (const [handle, start, end] of edgeHandles) {
+    if (distanceToSegmentSquared(point, start, end) <= toleranceSquared) return handle
+  }
   return null
 }
 
@@ -355,6 +452,9 @@ function onPointerDown(event: PointerEvent) {
         startSceneX: point.x,
         startSceneY: point.y,
         startTransform: { ...selectedNode.value.transform },
+        startLocalX: applyMatrix(selectedAbs.inverse, point).x,
+        startLocalY: applyMatrix(selectedAbs.inverse, point).y,
+        startNodeInverse: selectedAbs.inverse,
         handle,
       }
       event.preventDefault()
@@ -375,6 +475,7 @@ function onPointerDown(event: PointerEvent) {
       startSceneX: point.x,
       startSceneY: point.y,
       startTransform: { ...hit.transform },
+      startParentInverse: invertMatrix(absTransforms.get(hit.id)?.parentMatrix ?? IDENTITY_MATRIX),
     }
     event.preventDefault()
   } else {
@@ -400,10 +501,15 @@ function onPointerMove(event: PointerEvent) {
   if (!node) return
   const next = { ...active.startTransform }
   if (active.type === 'move') {
-    next.x = (active.startTransform.x ?? 0) + point.x - active.startSceneX
-    next.y = (active.startTransform.y ?? 0) + point.y - active.startSceneY
+    const delta = applyVector(active.startParentInverse ?? IDENTITY_MATRIX, {
+      x: point.x - active.startSceneX,
+      y: point.y - active.startSceneY,
+    })
+    next.x = (active.startTransform.x ?? 0) + delta.x
+    next.y = (active.startTransform.y ?? 0) + delta.y
   } else if (active.handle) {
-    applyResize(next, active.handle, point, active.startSceneX, active.startSceneY)
+    const localPoint = applyMatrix(active.startNodeInverse ?? IDENTITY_MATRIX, point)
+    applyResize(next, active.handle, localPoint, active.startLocalX ?? 0, active.startLocalY ?? 0)
   }
   studio.updateNodeLocal(node.id, { transform: next })
   scheduleDraw()
@@ -509,23 +615,24 @@ function computeContentBounds() {
   let minY = Infinity
   let maxX = -Infinity
   let maxY = -Infinity
-  const walk = (parentId: string | null, px: number, py: number) => {
+  const walk = (parentId: string | null, parentMatrix: Matrix) => {
     for (const node of children.get(parentId) ?? []) {
       const t = node.transform || {}
-      const x = px + (t.x ?? 0)
-      const y = py + (t.y ?? 0)
       const w = t.width ?? 0
       const h = t.height ?? 0
+      const abs = makeAbsTransform(parentMatrix, matrixFromTransform(t), w, h)
       if (node.visible !== false) {
-        minX = Math.min(minX, x)
-        minY = Math.min(minY, y)
-        maxX = Math.max(maxX, x + w)
-        maxY = Math.max(maxY, y + h)
+        for (const corner of abs.corners) {
+          minX = Math.min(minX, corner.x)
+          minY = Math.min(minY, corner.y)
+          maxX = Math.max(maxX, corner.x)
+          maxY = Math.max(maxY, corner.y)
+        }
       }
-      walk(node.id, x, y)
+      walk(node.id, abs.matrix)
     }
   }
-  walk(rootId, 0, 0)
+  walk(rootId, IDENTITY_MATRIX)
   if (!Number.isFinite(minX)) return null
   return { minX, minY, maxX, maxY }
 }
