@@ -262,6 +262,25 @@ function handlePreviewKeydown(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     event.preventDefault()
     studio.closeExportPreview()
+    return
+  }
+  if (event.key !== 'Tab') return
+
+  const modal = event.currentTarget as HTMLElement
+  const focusable = Array.from(
+    modal.querySelectorAll<HTMLElement>('button, iframe, a[href], input, select, textarea, [tabindex]:not([tabindex="-1"])'),
+  ).filter((element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true')
+  if (!focusable.length) return
+
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  if (!first || !last) return
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault()
+    last.focus()
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault()
+    first.focus()
   }
 }
 
