@@ -31,6 +31,7 @@ const editingName = ref(false)
 const nameDraft = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedAssetId = ref<string | null>(null)
+const mobilePanelOpen = ref(false)
 const saveState = ref<'idle' | 'saving' | 'saved'>('saved')
 const exportError = ref<string | null>(null)
 const previewCloseButton = ref<HTMLButtonElement | null>(null)
@@ -215,6 +216,11 @@ function selectAsset(assetId: string) {
   studio.selectNode(null)
 }
 
+function openMobilePanel(panel: 'layers' | 'assets') {
+  studio.setActivePanel(panel)
+  mobilePanelOpen.value = true
+}
+
 async function toggleLayerVisible(node: SceneNode) {
   await runAction(() => studio.toggleNodeVisibility(node.id))
 }
@@ -289,9 +295,15 @@ function handlePreviewKeydown(event: KeyboardEvent) {
       </div>
 
       <div class="topbar-actions">
-        <button class="secondary-button" type="button" @click="triggerUpload">
+        <button class="secondary-button import-button" type="button" @click="triggerUpload">
           <Upload :size="16" />
           Import
+        </button>
+        <button class="icon-button mobile-panel-button" type="button" aria-label="Open layers" title="Open layers" @click="openMobilePanel('layers')">
+          <Layers3 :size="16" />
+        </button>
+        <button class="icon-button mobile-panel-button" type="button" aria-label="Open assets" title="Open assets" @click="openMobilePanel('assets')">
+          <FileImage :size="16" />
         </button>
         <button
           class="primary-button"
@@ -323,7 +335,7 @@ function handlePreviewKeydown(event: KeyboardEvent) {
     </div>
 
     <div class="studio-body">
-      <aside class="left-panel">
+      <aside class="left-panel" :class="{ 'mobile-open': mobilePanelOpen }">
         <div class="panel-tabs">
           <button type="button" :class="{ active: studio.activePanel === 'layers' }" @click="studio.setActivePanel('layers')">
             <Layers3 :size="16" />
@@ -332,6 +344,9 @@ function handlePreviewKeydown(event: KeyboardEvent) {
           <button type="button" :class="{ active: studio.activePanel === 'assets' }" @click="studio.setActivePanel('assets')">
             <FileImage :size="16" />
             Assets
+          </button>
+          <button class="icon-button mobile-panel-close" type="button" aria-label="Close layer and asset panel" @click="mobilePanelOpen = false">
+            <X :size="15" />
           </button>
         </div>
 
