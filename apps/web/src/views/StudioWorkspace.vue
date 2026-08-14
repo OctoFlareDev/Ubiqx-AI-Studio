@@ -19,7 +19,7 @@ import {
   Upload,
   X,
 } from 'lucide-vue-next'
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 import { useStudioStore } from '@/stores/studio'
 import type { Asset, SceneNode } from '@/types'
@@ -33,6 +33,8 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const selectedAssetId = ref<string | null>(null)
 const saveState = ref<'idle' | 'saving' | 'saved'>('saved')
 const exportError = ref<string | null>(null)
+const previewCloseButton = ref<HTMLButtonElement | null>(null)
+let previewReturnFocus: HTMLElement | null = null
 
 const selectedAsset = computed<Asset | null>(
   () => studio.assets.find((asset) => asset.id === selectedAssetId.value) ?? null,
@@ -63,6 +65,20 @@ watch(
     if (!editingName.value) nameDraft.value = name ?? ''
   },
   { immediate: true },
+)
+
+watch(
+  () => studio.exportPreviewHtml,
+  async (html) => {
+    if (html) {
+      previewReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      await nextTick()
+      previewCloseButton.value?.focus()
+      return
+    }
+    previewReturnFocus?.focus()
+    previewReturnFocus = null
+  },
 )
 
 function startRename() {
@@ -232,6 +248,13 @@ function formatBytes(value: number): string {
   if (value < 1024) return `${value} B`
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`
   return `${(value / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function handlePreviewKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    studio.closeExportPreview()
+  }
 }
 
 </script>
@@ -572,13 +595,27 @@ function formatBytes(value: number): string {
     <input ref="fileInput" class="visually-hidden" type="file" accept=".psd,.psb,.png,.jpg,.jpeg,.webp,.svg" @change="onFileSelected" />
 
     <div v-if="studio.exportPreviewHtml" class="preview-modal-backdrop" @click.self="studio.closeExportPreview">
-      <section class="preview-modal" role="dialog" aria-modal="true" aria-label="HTML5 export preview">
+      <section
+        class="preview-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="HTML5 export preview"
+        tabindex="-1"
+        @keydown="handlePreviewKeydown"
+      >
         <header class="preview-modal-header">
           <div>
             <p class="eyebrow">M3 package preview</p>
             <h3>{{ project.name }}</h3>
           </div>
-          <button class="icon-button" type="button" aria-label="Close export preview" title="Close preview" @click="studio.closeExportPreview">
+          <button
+            ref="previewCloseButton"
+            class="icon-button"
+            type="button"
+            aria-label="Close export preview"
+            title="Close preview"
+            @click="studio.closeExportPreview"
+          >
             <X :size="18" />
           </button>
         </header>
