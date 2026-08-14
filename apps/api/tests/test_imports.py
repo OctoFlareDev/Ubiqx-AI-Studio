@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.import_service import ParsedNode, _scale_parsed_node
+from app.import_service import PSDImportParser, ParsedNode, _scale_parsed_node
 
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -143,6 +144,13 @@ def test_oversized_document_scale_preserves_scene_coordinates() -> None:
     assert root.transform["width"] == 4096
     assert child.transform["x"] == 1000
     assert child.transform["width"] == 2000
+
+
+def test_unsupported_psd_layers_are_reported() -> None:
+    parser = PSDImportParser(source_name="test")
+    converted = parser._convert_layer(SimpleNamespace(kind="adjustment", name="Curves"))
+    assert converted is None
+    assert parser.warnings[0]["code"] == "unsupported_layer_dropped"
 
 
 def test_failed_import_does_not_replace_scene(

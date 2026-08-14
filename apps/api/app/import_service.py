@@ -191,6 +191,13 @@ class PSDImportParser:
 
     def _convert_layer(self, layer: Layer) -> ParsedNode | None:
         if layer.kind in {"background", "adjustment", "brightnesscontrast"}:
+            self.warnings.append(
+                _warning(
+                    "unsupported_layer_dropped",
+                    "This PSD layer type is not rendered by the v1 importer and was omitted from the scene.",
+                    getattr(layer, "name", None),
+                )
+            )
             return None
         node_type = _layer_type(layer)
         node = ParsedNode(
