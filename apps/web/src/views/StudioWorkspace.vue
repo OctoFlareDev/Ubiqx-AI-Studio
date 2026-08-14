@@ -21,6 +21,7 @@ import {
 } from 'lucide-vue-next'
 import { computed, nextTick, ref, watch } from 'vue'
 
+import { api } from '@/services/api'
 import { useStudioStore } from '@/stores/studio'
 import type { Asset, SceneNode } from '@/types'
 import SceneCanvas from '@/components/SceneCanvas.vue'
@@ -221,6 +222,10 @@ function openMobilePanel(panel: 'layers' | 'assets') {
   mobilePanelOpen.value = true
 }
 
+function isPreviewableAsset(asset: Asset): boolean {
+  return ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'].includes(asset.media_type)
+}
+
 async function toggleLayerVisible(node: SceneNode) {
   await runAction(() => studio.toggleNodeVisibility(node.id))
 }
@@ -411,9 +416,14 @@ function handlePreviewKeydown(event: KeyboardEvent) {
               type="button"
               @click="selectAsset(asset.id)"
             >
-              <FileImage :size="16" />
+              <span class="asset-thumb" aria-hidden="true">
+                <img v-if="isPreviewableAsset(asset)" :src="api.assetContentUrl(asset.id)" alt="" loading="lazy" />
+                <FileImage v-else :size="16" />
+              </span>
               <span class="asset-name">{{ asset.original_name }}</span>
-              <span class="asset-size">{{ formatBytes(asset.byte_size) }}</span>
+              <span class="asset-size">
+                {{ asset.width && asset.height ? `${asset.width} × ${asset.height}` : formatBytes(asset.byte_size) }}
+              </span>
             </button>
           </div>
           <div v-else class="panel-empty">

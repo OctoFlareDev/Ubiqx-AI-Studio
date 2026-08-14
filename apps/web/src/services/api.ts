@@ -169,6 +169,7 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   listAssets: (projectId: string) => request<Asset[]>(`/projects/${projectId}/assets`),
+  assetContentUrl: (assetId: string) => `${API_BASE}/assets/${assetId}/content`,
   getAssetContent: (assetId: string) => requestBlob(`/assets/${assetId}/content`),
   uploadAsset: (projectId: string, file: File) => {
     const form = new FormData()

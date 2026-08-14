@@ -640,6 +640,23 @@ button:disabled {
   text-align: left;
 }
 
+.asset-thumb {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #f1f4f6;
+}
+
+.asset-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .layer-row {
   grid-template-columns: auto auto auto minmax(0, 1fr);
   cursor: default;
