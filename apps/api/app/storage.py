@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 from pathlib import Path
 
@@ -29,8 +30,8 @@ def _detect_kind(head: bytes) -> str | None:
         return ".psd"
     if head.startswith(b"RIFF") and head[8:12] == b"WEBP":
         return ".webp"
-    stripped = head.lstrip()
-    if stripped.startswith(b"<svg") or stripped.startswith(b"<?xml") and b"<svg" in stripped[:1024]:
+    stripped = head.lstrip(b"\xef\xbb\xbf \t\r\n")
+    if re.search(br"<svg(?:\s|>)", stripped[:8192], flags=re.IGNORECASE):
         return ".svg"
     return None
 
@@ -72,8 +73,8 @@ class AssetStore:
                     tmp_path.unlink(missing_ok=True)
                     raise ValueError("file_too_large")
                 digest.update(chunk)
-                if len(head) < 16:
-                    head += chunk[: 16 - len(head)]
+                if len(head) < 8192:
+                    head += chunk[: 8192 - len(head)]
                 out.write(chunk)
 
         detected_extension = _detect_kind(head)
@@ -82,6 +83,7 @@ class AssetStore:
             raise ValueError("unknown_file_type")
         compatible_extension = (
             (extension == ".jpg" and detected_extension == ".jpeg")
+            or (extension == ".jpeg" and detected_extension == ".jpg")
             or (extension == ".psb" and detected_extension == ".psd")
         )
         if detected_extension != extension and not compatible_extension:
@@ -90,7 +92,14 @@ class AssetStore:
 
         declared_type = upload.content_type or ""
         expected_type = ALLOWED_EXTENSIONS[extension]
-        if declared_type and not declared_type.startswith("image/") and declared_type not in expected_type:
+        declared_aliases = {
+            ".jpg": {"image/jpeg", "image/jpg"},
+            ".jpeg": {"image/jpeg", "image/jpg"},
+            ".psd": {"image/vnd.adobe.photoshop"},
+            ".psb": {"image/vnd.adobe.photoshop"},
+        }
+        allowed_declared_types = declared_aliases.get(extension, {expected_type})
+        if declared_type and declared_type not in allowed_declared_types:
             tmp_path.unlink(missing_ok=True)
             raise ValueError("invalid_media_type")
 

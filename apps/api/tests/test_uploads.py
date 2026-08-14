@@ -50,6 +50,35 @@ def test_upload_rejects_unsupported_extension(client: TestClient, auth_headers: 
     assert response.json()["error"]["code"] == "unsupported_file_type"
 
 
+def test_upload_accepts_svg_with_xml_preamble(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    svg = b'<?xml version="1.0" encoding="UTF-8"?>\n' + (b" " * 64) + b'<svg xmlns="http://www.w3.org/2000/svg" width="2" height="2"></svg>'
+    response = client.post(
+        f"/api/v1/projects/{project_id}/assets",
+        headers=auth_headers,
+        files={"file": ("vector.svg", svg, "image/svg+xml")},
+    )
+    assert response.status_code == 201
+    assert response.json()["media_type"] == "image/svg+xml"
+
+
+def test_upload_rejects_declared_mime_mismatch(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    response = client.post(
+        f"/api/v1/projects/{project_id}/assets",
+        headers=auth_headers,
+        files={"file": ("vector.svg", b'<svg xmlns="http://www.w3.org/2000/svg"></svg>', "image/png")},
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_media_type"
+
+
 def test_asset_delete_rejects_referenced_assets(
     client: TestClient,
     auth_headers: dict[str, str],
