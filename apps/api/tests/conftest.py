@@ -26,10 +26,17 @@ def client() -> Generator[TestClient, None, None]:
         yield test_client
 
 
+@pytest.fixture(autouse=True)
+def isolate_client_cookies(client: TestClient) -> None:
+    client.cookies.clear()
+
+
 @pytest.fixture()
 def auth_headers(client: TestClient) -> dict[str, str]:
     response = client.post("/api/v1/auth/bootstrap")
     assert response.status_code == 200
     key = response.json()["api_key"]
+    # Tests using bearer auth should not leak the bootstrap session cookie into
+    # later anonymous-request assertions on the shared TestClient.
+    client.cookies.clear()
     return {"Authorization": f"Bearer {key}"}
-
