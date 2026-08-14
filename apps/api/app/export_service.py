@@ -4,6 +4,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import shutil
 import uuid
 import zipfile
@@ -340,10 +341,7 @@ class HTML5ExportService:
         )
 
         manifest = self._build_manifest(package_dir, scene_data, referenced_assets, warnings)
-        (package_dir / "manifest.json").write_text(
-            _json_payload(manifest),
-            encoding="utf-8",
-        )
+        (package_dir / "manifest.json").write_text(_json_payload(manifest), encoding="utf-8")
 
         preview_path = export_dir / "preview.html"
         preview_path.write_text(
@@ -352,13 +350,20 @@ class HTML5ExportService:
         )
 
         package_path = export_dir / "html5.zip"
+        self._write_zip(package_dir, package_path)
+        self._validate_package(package_path, manifest, scene_data)
+
+        manifest["validation"]["passed"] = True
+        (package_dir / "manifest.json").write_text(_json_payload(manifest), encoding="utf-8")
+        self._write_zip(package_dir, package_path)
+        self._validate_package(package_path, manifest, scene_data)
+        return package_path, export_dir, manifest, warnings
+
+    def _write_zip(self, package_dir: Path, package_path: Path) -> None:
         with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
             for file_path in sorted(package_dir.rglob("*")):
                 if file_path.is_file():
                     archive.write(file_path, file_path.relative_to(package_dir).as_posix())
-
-        self._validate_package(package_path, manifest)
-        return package_path, export_dir, manifest, warnings
 
     def _build_manifest(
         self,
@@ -387,28 +392,121 @@ class HTML5ExportService:
             "files": files,
             "referenced_assets": referenced_assets,
             "validation": {
-                "passed": True,
+                "passed": False,
                 "node_count": node_count,
                 "asset_count": asset_count,
                 "warning_count": len(warnings),
             },
         }
 
-    def _validate_package(self, package_path: Path, manifest: dict) -> None:
+    def _validate_package(self, package_path: Path, manifest: dict, expected_scene_data: dict) -> None:
         if not package_path.exists() or package_path.stat().st_size == 0:
             raise ExportFailure("export_package_missing")
         try:
             with zipfile.ZipFile(package_path) as archive:
                 names = set(archive.namelist())
+                payloads = {name: archive.read(name) for name in names if name in manifest.get("files", {})}
+                scene_bytes = archive.read("scene.json") if "scene.json" in names else b""
+                manifest_bytes = archive.read("manifest.json") if "manifest.json" in names else b""
+                html_bytes = archive.read("index.html") if "index.html" in names else b""
         except zipfile.BadZipFile as exc:
             raise ExportFailure("export_package_invalid") from exc
 
         for required in ("index.html", "scene.json", "manifest.json"):
             if required not in names:
                 raise ExportFailure("export_validation_failed")
-        for relative in manifest["files"]:
+        for relative, descriptor in manifest.get("files", {}).items():
             if relative not in names:
                 raise ExportFailure("export_validation_failed")
+            content = payloads.get(relative)
+            if content is None:
+                raise ExportFailure("export_validation_failed")
+            if len(content) != descriptor.get("byte_size"):
+                raise ExportFailure("export_validation_failed")
+            if hashlib.sha256(content).hexdigest() != descriptor.get("sha256"):
+                raise ExportFailure("export_validation_failed")
+
+        try:
+            scene_data = json.loads(scene_bytes.decode("utf-8"))
+            manifest_data = json.loads(manifest_bytes.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError, KeyError) as exc:
+            raise ExportFailure("export_validation_failed") from exc
+
+        if scene_data.get("scene", {}).get("id") != expected_scene_data.get("scene", {}).get("id"):
+            raise ExportFailure("export_validation_failed")
+        if not self._scene_graph_is_reachable(scene_data):
+            raise ExportFailure("export_validation_failed")
+
+        referenced_assets = manifest_data.get("referenced_assets", [])
+        asset_ids = {item.get("asset_id") for item in referenced_assets}
+        asset_files = {item.get("file") for item in referenced_assets}
+        if len(asset_ids) != len(referenced_assets) or len(asset_files) != len(referenced_assets):
+            raise ExportFailure("export_validation_failed")
+        for item in referenced_assets:
+            if item.get("file") not in names:
+                raise ExportFailure("export_validation_failed")
+        for node in scene_data.get("nodes", []):
+            asset_id = node.get("asset_id")
+            asset_file = node.get("asset_file")
+            if asset_id and asset_id not in asset_ids:
+                raise ExportFailure("export_validation_failed")
+            if asset_file and asset_file not in names and not str(asset_file).startswith("data:"):
+                raise ExportFailure("export_validation_failed")
+
+        html = html_bytes.decode("utf-8")
+        match = re.search(
+            r'<script type="application/json" id="scene-data">(.*?)</script>',
+            html,
+            flags=re.DOTALL,
+        )
+        if match is None:
+            raise ExportFailure("export_validation_failed")
+        try:
+            embedded_scene_data = json.loads(match.group(1))
+        except json.JSONDecodeError as exc:
+            raise ExportFailure("export_validation_failed") from exc
+        if embedded_scene_data.get("nodes") != scene_data.get("nodes"):
+            raise ExportFailure("export_validation_failed")
+        if "function renderNode" not in html or "getElementById('stage')" not in html:
+            raise ExportFailure("export_validation_failed")
+
+    def _scene_graph_is_reachable(self, scene_data: dict) -> bool:
+        root_id = scene_data.get("root_node_id")
+        nodes = scene_data.get("nodes")
+        if not isinstance(root_id, str) or not isinstance(nodes, list):
+            return False
+        node_ids = [node.get("id") for node in nodes]
+        if any(not isinstance(node_id, str) for node_id in node_ids) or len(set(node_ids)) != len(node_ids):
+            return False
+        node_id_set = set(node_ids)
+        children: dict[str, list[dict]] = {}
+        for node in nodes:
+            parent_id = node.get("parent_id") or root_id
+            if parent_id != root_id and parent_id not in node_id_set:
+                return False
+            children.setdefault(parent_id, []).append(node)
+
+        visited: set[str] = set()
+        visiting: set[str] = set()
+
+        def visit(parent_id: str) -> bool:
+            if parent_id in visiting:
+                return False
+            visiting.add(parent_id)
+            for node in children.get(parent_id, []):
+                node_id = node["id"]
+                if node_id in visiting:
+                    return False
+                if node_id not in visited:
+                    if not visit(node_id):
+                        return False
+            visiting.discard(parent_id)
+            visited.add(parent_id)
+            return True
+
+        if not visit(root_id):
+            return False
+        return visited.intersection(node_id_set) == node_id_set
 
     def _render_html(
         self,
