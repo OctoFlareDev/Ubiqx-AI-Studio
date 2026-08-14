@@ -174,6 +174,24 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
 
 
+@app.exception_handler(Exception)
+async def unexpected_exception_handler(request: Request, exc: Exception):
+    request_logger.exception(
+        "unhandled_exception",
+        extra={"request_id": _request_id(request), "exception_type": type(exc).__name__},
+    )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": {
+                "code": "internal_error",
+                "message": "An unexpected server error occurred.",
+                "request_id": _request_id(request),
+            }
+        },
+    )
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 

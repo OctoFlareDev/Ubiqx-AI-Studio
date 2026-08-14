@@ -10,10 +10,14 @@ class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ErrorEnvelope(BaseModel):
+class ErrorDetail(BaseModel):
     code: str
     message: str
     request_id: str | None = None
+
+
+class ErrorEnvelope(BaseModel):
+    error: ErrorDetail
 
 
 class BootstrapResponse(BaseModel):
