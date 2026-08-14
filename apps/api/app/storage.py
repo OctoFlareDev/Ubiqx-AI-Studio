@@ -71,6 +71,39 @@ def _svg_length(value: str | None) -> float | None:
     return float(match.group(1)) if match else None
 
 
+def _sanitize_svg(data: bytes) -> bytes:
+    lowered = data[:1024 * 1024].lower()
+    if b"<!doctype" in lowered or b"<!entity" in lowered:
+        raise ValueError("unsafe_svg")
+    try:
+        root = ElementTree.fromstring(data)
+    except ElementTree.ParseError as exc:
+        raise ValueError("invalid_svg") from exc
+
+    def local_name(value: str) -> str:
+        return value.rsplit("}", 1)[-1].lower()
+
+    def sanitize(element: ElementTree.Element) -> None:
+        for child in list(element):
+            if local_name(child.tag) in {"script", "foreignobject", "iframe", "object", "embed"}:
+                element.remove(child)
+                continue
+            sanitize(child)
+        for attribute, value in list(element.attrib.items()):
+            name = local_name(attribute)
+            normalized = value.strip().lower()
+            if name.startswith("on"):
+                del element.attrib[attribute]
+            elif name in {"href", "src", "xlink:href"}:
+                if not normalized.startswith("#") and not normalized.startswith("data:image/"):
+                    del element.attrib[attribute]
+            if name == "style" and "url(" in normalized:
+                del element.attrib[attribute]
+
+    sanitize(root)
+    return ElementTree.tostring(root, encoding="utf-8", xml_declaration=True)
+
+
 def _persist(data_dir: Path, content_hash: str, source: Path) -> Path:
     destination = data_dir / content_hash[:2] / content_hash
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -136,6 +169,17 @@ class AssetStore:
         if declared_type and declared_type not in allowed_declared_types:
             tmp_path.unlink(missing_ok=True)
             raise ValueError("invalid_media_type")
+
+        if detected_extension == ".svg":
+            try:
+                sanitized = _sanitize_svg(tmp_path.read_bytes())
+            except ValueError:
+                tmp_path.unlink(missing_ok=True)
+                raise
+            tmp_path.write_bytes(sanitized)
+            digest = hashlib.sha256()
+            digest.update(sanitized)
+            size = len(sanitized)
 
         content_hash = digest.hexdigest()
         storage_path = _persist(self.root, content_hash, tmp_path)

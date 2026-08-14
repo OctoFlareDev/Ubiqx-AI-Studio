@@ -118,6 +118,29 @@ def test_upload_records_raster_dimensions_and_metadata(
     assert body["metadata"]["detected_extension"] == ".png"
 
 
+def test_svg_upload_is_sanitized(client: TestClient, auth_headers: dict[str, str]) -> None:
+    project_id = _create_project(client, auth_headers)
+    svg = (
+        b'<svg xmlns="http://www.w3.org/2000/svg" width="8" height="6" '
+        b'onload="alert(1)"><script>alert(2)</script>'
+        b'<image href="javascript:alert(3)" /></svg>'
+    )
+    upload = client.post(
+        f"/api/v1/projects/{project_id}/assets",
+        headers=auth_headers,
+        files={"file": ("unsafe.svg", svg, "image/svg+xml")},
+    )
+    assert upload.status_code == 201
+    content = client.get(
+        f"/api/v1/assets/{upload.json()['id']}/content",
+        headers=auth_headers,
+    )
+    assert content.status_code == 200
+    assert b"script" not in content.content.lower()
+    assert b"onload" not in content.content.lower()
+    assert b"javascript:" not in content.content.lower()
+
+
 def test_asset_delete_rejects_referenced_assets(
     client: TestClient,
     auth_headers: dict[str, str],
