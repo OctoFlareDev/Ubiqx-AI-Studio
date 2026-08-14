@@ -150,7 +150,13 @@ async function downloadExport() {
 }
 
 function selectLayer(node: SceneNode) {
+  selectedAssetId.value = null
   studio.selectNode(node.id)
+}
+
+function selectAsset(assetId: string) {
+  selectedAssetId.value = assetId
+  studio.selectNode(null)
 }
 
 async function toggleLayerVisible(node: SceneNode) {
@@ -312,7 +318,7 @@ function formatBytes(value: number): string {
               class="asset-row"
               :class="{ selected: selectedAssetId === asset.id }"
               type="button"
-              @click="selectedAssetId = asset.id"
+              @click="selectAsset(asset.id)"
             >
               <FileImage :size="16" />
               <span class="asset-name">{{ asset.original_name }}</span>
