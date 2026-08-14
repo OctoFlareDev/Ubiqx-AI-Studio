@@ -636,10 +636,12 @@ async def upload_asset(
         content_hash=stored["content_hash"],
         media_type=stored["media_type"],
         original_name=stored["original_name"],
+        width=stored.get("width"),
+        height=stored.get("height"),
         byte_size=stored["byte_size"],
         storage_path=stored["storage_path"],
         source="upload",
-        metadata={},
+        metadata=stored.get("metadata", {}),
     )
     db.add(asset)
     db.commit()

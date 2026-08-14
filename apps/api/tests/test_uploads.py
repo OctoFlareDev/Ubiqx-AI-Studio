@@ -1,4 +1,7 @@
+import io
+
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.config import settings
 
@@ -94,6 +97,25 @@ def test_upload_rejects_declared_mime_mismatch(
     )
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_media_type"
+
+
+def test_upload_records_raster_dimensions_and_metadata(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    buffer = io.BytesIO()
+    Image.new("RGBA", (7, 5), (20, 30, 40, 255)).save(buffer, format="PNG")
+    response = client.post(
+        f"/api/v1/projects/{project_id}/assets",
+        headers=auth_headers,
+        files={"file": ("sized.png", buffer.getvalue(), "image/png")},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["width"] == 7
+    assert body["height"] == 5
+    assert body["metadata"]["detected_extension"] == ".png"
 
 
 def test_asset_delete_rejects_referenced_assets(

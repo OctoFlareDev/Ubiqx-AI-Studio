@@ -4,8 +4,10 @@ import hashlib
 import re
 import shutil
 from pathlib import Path
+from xml.etree import ElementTree
 
 from fastapi import UploadFile
+from PIL import Image
 
 from .config import settings
 
@@ -38,6 +40,35 @@ def _detect_kind(head: bytes) -> str | None:
 
 def _safe_original_name(name: str) -> str:
     return Path(name or "asset").name[:255] or "asset"
+
+
+def _image_dimensions(path: Path, extension: str) -> tuple[int | None, int | None]:
+    if extension in {".png", ".jpg", ".jpeg", ".webp"}:
+        try:
+            with Image.open(path) as image:
+                return image.size
+        except Exception:
+            return None, None
+    if extension == ".svg":
+        try:
+            root = ElementTree.fromstring(path.read_bytes()[:1024 * 1024])
+            width = _svg_length(root.attrib.get("width"))
+            height = _svg_length(root.attrib.get("height"))
+            if width is not None and height is not None:
+                return round(width), round(height)
+            view_box = root.attrib.get("viewBox", "").replace(",", " ").split()
+            if len(view_box) == 4:
+                return round(float(view_box[2])), round(float(view_box[3]))
+        except (ElementTree.ParseError, ValueError, OSError):
+            pass
+    return None, None
+
+
+def _svg_length(value: str | None) -> float | None:
+    if not value:
+        return None
+    match = re.fullmatch(r"\s*([0-9]+(?:\.[0-9]+)?)\s*(?:px)?\s*", value, flags=re.IGNORECASE)
+    return float(match.group(1)) if match else None
 
 
 def _persist(data_dir: Path, content_hash: str, source: Path) -> Path:
@@ -108,12 +139,19 @@ class AssetStore:
 
         content_hash = digest.hexdigest()
         storage_path = _persist(self.root, content_hash, tmp_path)
+        width, height = _image_dimensions(storage_path, extension)
         return {
             "content_hash": content_hash,
             "media_type": expected_type,
             "original_name": original_name,
             "byte_size": size,
             "storage_path": str(storage_path),
+            "width": width,
+            "height": height,
+            "metadata": {
+                "detected_extension": detected_extension,
+                "declared_media_type": declared_type or None,
+            },
         }
 
     def save_bytes(self, data: bytes, original_name: str, media_type: str) -> dict:
