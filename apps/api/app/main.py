@@ -109,6 +109,7 @@ async def rate_limit_middleware(request: Request, call_next):
                         "request_id": request_id,
                     }
                 },
+                headers={"Retry-After": str(limiter.retry_after(rate_limit_key(request)))},
             )
     return await call_next(request)
 

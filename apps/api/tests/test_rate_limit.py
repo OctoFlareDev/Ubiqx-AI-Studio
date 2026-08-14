@@ -17,6 +17,7 @@ def test_rate_limit_returns_structured_error(client: TestClient, auth_headers: d
         body = limited.json()
         assert body["error"]["code"] == "rate_limited"
         assert body["error"]["request_id"]
+        assert int(limited.headers["Retry-After"]) >= 1
     finally:
         app.state.rate_limiter = original
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import threading
 import time
 from collections import deque
@@ -34,10 +35,27 @@ class SlidingWindowRateLimiter:
                 self._hits[key] = queue
             while queue and now - queue[0] >= self.window_seconds:
                 queue.popleft()
+            if not queue:
+                self._hits.pop(key, None)
+                queue = deque()
+                self._hits[key] = queue
             if len(queue) >= self.limit:
                 return False
             queue.append(now)
             return True
+
+    def retry_after(self, key: str) -> int:
+        now = time.monotonic()
+        with self._lock:
+            queue = self._hits.get(key)
+            if queue is None:
+                return 0
+            while queue and now - queue[0] >= self.window_seconds:
+                queue.popleft()
+            if not queue:
+                self._hits.pop(key, None)
+                return 0
+            return max(1, math.ceil(self.window_seconds - (now - queue[0])))
 
     def reset(self) -> None:
         with self._lock:
