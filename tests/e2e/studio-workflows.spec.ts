@@ -32,6 +32,7 @@ test('asset placement clears asset selection and creates a keyboard-selectable l
 
   await expect(page.locator('.asset-properties h3')).toHaveText('transparent.png')
   await page.getByRole('button', { name: 'Add to canvas' }).click()
+  await page.locator('.panel-tabs button').filter({ hasText: 'Layers' }).click()
 
   const layer = page.getByRole('button', { name: 'Select layer transparent' })
   await expect(layer).toBeVisible()
@@ -45,7 +46,7 @@ test('mobile users can reach the layer and asset panels', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await createProject(page, `Mobile workflow ${Date.now()}`)
 
-  await expect(page.getByRole('button', { name: 'Import' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Import', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Open assets' }).first().click()
   await expect(page.locator('.left-panel.mobile-open')).toBeVisible()
   await expect(page.getByText('Project assets')).toBeVisible()
