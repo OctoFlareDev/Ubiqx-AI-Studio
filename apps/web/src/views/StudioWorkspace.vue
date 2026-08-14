@@ -339,7 +339,22 @@ function formatBytes(value: number): string {
       </aside>
 
       <section class="canvas-panel" data-testid="studio-canvas">
-        <SceneCanvas v-if="studio.scene" />
+        <SceneCanvas v-if="studio.scene && hasExportableNodes" />
+        <div v-else-if="studio.scene" class="canvas-empty-state">
+          <span class="empty-icon"><Upload :size="28" /></span>
+          <h3>Start your scene</h3>
+          <p>Import a PSD, PSB, or image asset to begin building the canvas.</p>
+          <div class="canvas-empty-actions">
+            <button class="primary-button" type="button" @click="triggerUpload">
+              <Upload :size="16" />
+              Import design
+            </button>
+            <button class="secondary-button" type="button" @click="studio.setActivePanel('assets')">
+              <FileImage :size="16" />
+              Open assets
+            </button>
+          </div>
+        </div>
         <div v-else class="canvas-panel-empty" />
       </section>
 

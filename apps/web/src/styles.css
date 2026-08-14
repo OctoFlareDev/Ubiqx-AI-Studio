@@ -680,6 +680,47 @@ button:disabled {
   height: 100%;
 }
 
+.canvas-empty-state {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-height: 100%;
+  padding: 32px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.canvas-empty-state .empty-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  color: var(--accent);
+  background: #fff;
+}
+
+.canvas-empty-state h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.canvas-empty-state p {
+  max-width: 360px;
+  margin: 8px 0 18px;
+  line-height: 1.5;
+}
+
+.canvas-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
 .scene-canvas {
   position: relative;
   width: 100%;
