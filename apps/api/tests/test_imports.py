@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.import_service import PSDImportParser, ParsedNode, _scale_parsed_node
+from app.import_service import PSDImportParser, ParsedNode, _effect_metadata, _scale_parsed_node
 
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -151,6 +151,19 @@ def test_unsupported_psd_layers_are_reported() -> None:
     converted = parser._convert_layer(SimpleNamespace(kind="adjustment", name="Curves"))
     assert converted is None
     assert parser.warnings[0]["code"] == "unsupported_layer_dropped"
+
+
+def test_effect_metadata_is_structured() -> None:
+    layer = SimpleNamespace(
+        effects=SimpleNamespace(opacity=0.5, enabled=True),
+        blend_mode="normal",
+        name="Button",
+    )
+    warnings: list[dict] = []
+    metadata = _effect_metadata(layer, warnings)
+    assert metadata is not None
+    assert metadata["effects"]["type"] == "SimpleNamespace"
+    assert metadata["effects"]["attributes"]["opacity"] == 0.5
 
 
 def test_failed_import_does_not_replace_scene(

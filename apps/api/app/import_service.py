@@ -128,6 +128,37 @@ def _text_properties(layer: Layer) -> dict | None:
     return result
 
 
+def _structured_metadata(value: object, *, depth: int = 0, seen: set[int] | None = None) -> object:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if depth >= 4:
+        return str(value)
+    if seen is None:
+        seen = set()
+    identity = id(value)
+    if identity in seen:
+        return "<cycle>"
+    seen.add(identity)
+    if isinstance(value, dict):
+        return {
+            str(key): _structured_metadata(item, depth=depth + 1, seen=seen)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [_structured_metadata(item, depth=depth + 1, seen=seen) for item in value]
+    attributes = getattr(value, "__dict__", None)
+    if isinstance(attributes, dict):
+        return {
+            "type": type(value).__name__,
+            "attributes": {
+                str(key): _structured_metadata(item, depth=depth + 1, seen=seen)
+                for key, item in attributes.items()
+                if not str(key).startswith("_")
+            },
+        }
+    return str(value)
+
+
 def _effect_metadata(layer: Layer, warnings: list[dict]) -> dict | None:
     effects = getattr(layer, "effects", None)
     if not effects:
@@ -140,7 +171,7 @@ def _effect_metadata(layer: Layer, warnings: list[dict]) -> dict | None:
         )
     )
     return {
-        "effects": repr(effects),
+        "effects": _structured_metadata(effects),
         "blend_mode": str(getattr(layer, "blend_mode", "")),
     }
 
