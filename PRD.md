@@ -31,6 +31,7 @@ They need:
 ## Product Principles
 
 - Figma-like UX: left asset/layer panel, center canvas, right properties panel, top toolbar, selection, move, resize, zoom, pan, and undo/redo.
+- The canvas is an infinite coordinate space; it is not clipped to a fixed resolution.
 - The scene graph is the source of truth; the canvas is a view over it.
 - No-code first: every common workflow must be possible visually.
 - Structured import is the entry point, not a flat pixel editor.
@@ -46,7 +47,7 @@ In scope:
 - Front-end shell and back-end API.
 - Project CRUD, file upload, minimal auth, local autosave.
 - PSD/PSB import into a structured scene graph.
-- CanvasKit canvas with selection, move, resize, zoom, pan, layers panel, and undo/redo.
+- CanvasKit infinite canvas with selection, move, resize, zoom, pan, layers panel, and undo/redo.
 - Plain HTML5 export package.
 - REST API with generated OpenAPI.
 - Initial AI asset processing: upscaling and background removal/matting.
@@ -70,6 +71,10 @@ The target user is a non-programmer who wants to turn existing designs into game
 ### UI Model
 
 The UI should look and feel like Figma because it is familiar and easier to use than game-engine editors.
+
+### Canvas
+
+The canvas is an infinite, unbounded coordinate space, not a fixed-resolution artboard. Nodes can be placed anywhere, including at negative coordinates, and the viewport pans without limits. The stored scene `width`/`height` is only a default viewport and source-size hint (for example, the PSD canvas size); it never clips content. Exports derive their output bounds from the visible content's bounding box plus padding; explicit frames/artboards are deferred to a later milestone.
 
 ### Structured Source
 
@@ -176,7 +181,7 @@ MCP support is deferred until the REST API and scene model are stable.
 ### M2 Scene Graph and Canvas
 
 - Retained scene graph as the source of truth.
-- CanvasKit rendering.
+- CanvasKit rendering on an infinite, unbounded coordinate space.
 - Selection, move, resize, zoom, pan, layers panel, and undo/redo.
 
 ### M3 HTML5 Export

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import time
 import zipfile
 from pathlib import Path
@@ -149,3 +150,45 @@ def test_export_reports_unsupported_effects(
     job = _wait_for_terminal(client, auth_headers, f"/api/v1/exports/{response.json()['id']}")
     assert job["status"] == "succeeded"
     assert any(warning["code"] == "unsupported_visual_effect" for warning in job["warnings"])
+
+
+def test_export_derives_viewport_from_content_bounds(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+
+    def add_node(name: str, transform: dict) -> None:
+        response = client.post(
+            f"/api/v1/projects/{project_id}/scene/nodes",
+            headers=auth_headers,
+            json={"type": "shape", "name": name, "transform": transform},
+        )
+        assert response.status_code == 201
+
+    add_node("A", {"x": 100, "y": 100, "width": 50, "height": 50})
+    add_node("B", {"x": -200, "y": -300, "width": 40, "height": 40})
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/exports",
+        headers=auth_headers,
+        json={"target": "html5"},
+    )
+    assert response.status_code == 201
+    export_id = response.json()["id"]
+    job = _wait_for_terminal(client, auth_headers, f"/api/v1/exports/{export_id}")
+    assert job["status"] == "succeeded"
+
+    # Content spans x: [-200, 150] and y: [-300, 150]; the exported viewport is
+    # that bounding box plus EXPORT_PADDING (24) on every side.
+    scene = job["manifest"]["scene"]
+    assert scene["width"] == pytest.approx((150 - (-200)) + 48)
+    assert scene["height"] == pytest.approx((150 - (-300)) + 48)
+
+    download = client.get(f"/api/v1/exports/{export_id}/download", headers=auth_headers)
+    assert download.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
+        scene_json = json.loads(archive.read("scene.json").decode("utf-8"))
+    nodes_by_name = {node["name"]: node for node in scene_json["nodes"]}
+    assert nodes_by_name["B"]["transform"]["x"] == pytest.approx(24)
+    assert nodes_by_name["B"]["transform"]["y"] == pytest.approx(24)

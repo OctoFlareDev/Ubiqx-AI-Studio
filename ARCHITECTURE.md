@@ -29,7 +29,7 @@ flowchart LR
 ### Front End
 
 - `Project shell`: project list, navigation, and empty states.
-- `Canvas`: CanvasKit view over the scene graph.
+- `Canvas`: infinite CanvasKit view over the scene graph (unbounded coordinate space, no fixed artboard).
 - `Layers panel`: hierarchy, visibility, lock, and selection.
 - `Properties panel`: editing for selected nodes.
 - `Import/export UI`: file upload, import status, export package actions.
@@ -105,6 +105,13 @@ The exact monorepo tooling is decided in M0. The contract package contains gener
 - The front end never treats canvas objects as the durable data model.
 - Mutations are expressed as small operations over scene nodes.
 - Undo/redo is applied at the scene-mutation level.
+
+## Infinite Canvas
+
+- The scene graph lives in an unbounded coordinate space; there is no fixed scene resolution.
+- The stored scene `width`/`height` is a default viewport and source-size hint only.
+- `fitView` frames the visible content's bounding box rather than a fixed artboard.
+- Export adapters derive the output bounds from the visible content's bounding box plus padding.
 
 ## Import and Export Adapters
 

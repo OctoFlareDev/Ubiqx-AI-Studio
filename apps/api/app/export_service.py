@@ -45,6 +45,61 @@ def _extension_for(media_type: str) -> str | None:
     return MEDIA_EXTENSIONS.get(media_type)
 
 
+EXPORT_PADDING = 24
+
+
+def _content_bounds(
+    nodes: list[SceneNode],
+    root_node_id: str | None,
+) -> tuple[float, float, float, float] | None:
+    """Return (min_x, min_y, max_x, max_y) over visible content, or None.
+
+    The scene graph is an unbounded coordinate space, so the exported viewport is
+    derived from the content rather than a fixed canvas size. Transforms are
+    accumulated down the hierarchy the same way the canvas and HTML renderer do.
+    """
+    children: dict[str | None, list[SceneNode]] = {}
+    by_id: dict[str, SceneNode] = {}
+    for node in nodes:
+        by_id[node.id] = node
+        if node.type == "root":
+            continue
+        children.setdefault(node.parent_id, []).append(node)
+
+    min_x = float("inf")
+    min_y = float("inf")
+    max_x = float("-inf")
+    max_y = float("-inf")
+
+    def walk(parent_id: str | None, parent_x: float, parent_y: float, parent_visible: bool) -> None:
+        nonlocal min_x, min_y, max_x, max_y
+        for node in children.get(parent_id, []):
+            transform = node.transform or {}
+            x = parent_x + float(transform.get("x", 0) or 0)
+            y = parent_y + float(transform.get("y", 0) or 0)
+            width = float(transform.get("width", 0) or 0)
+            height = float(transform.get("height", 0) or 0)
+            visible = parent_visible and node.visible is not False
+            if visible:
+                min_x = min(min_x, x)
+                min_y = min(min_y, y)
+                max_x = max(max_x, x + width)
+                max_y = max(max_y, y + height)
+            walk(node.id, x, y, visible)
+
+    root_x = 0.0
+    root_y = 0.0
+    if root_node_id and root_node_id in by_id:
+        root_transform = by_id[root_node_id].transform or {}
+        root_x = float(root_transform.get("x", 0) or 0)
+        root_y = float(root_transform.get("y", 0) or 0)
+    walk(root_node_id, root_x, root_y, True)
+
+    if min_x == float("inf"):
+        return None
+    return (min_x, min_y, max_x, max_y)
+
+
 def scene_has_exportable_nodes(db: Session, scene: Scene) -> bool:
     if scene is None:
         return False
@@ -140,14 +195,31 @@ class HTML5ExportService:
                 }
             )
 
+        bounds = _content_bounds(nodes, scene.root_node_id)
+        if bounds is None:
+            origin_x, origin_y = 0.0, 0.0
+            view_width, view_height = float(scene.width), float(scene.height)
+        else:
+            min_x, min_y, max_x, max_y = bounds
+            origin_x = min_x - EXPORT_PADDING
+            origin_y = min_y - EXPORT_PADDING
+            view_width = (max_x - min_x) + 2 * EXPORT_PADDING
+            view_height = (max_y - min_y) + 2 * EXPORT_PADDING
+        shift_x = -origin_x
+        shift_y = -origin_y
+
+        scene_metadata = dict(scene.metadata_ or {})
+        scene_metadata["source_width"] = float(scene.width)
+        scene_metadata["source_height"] = float(scene.height)
+
         scene_data = {
             "version": 1,
             "target": "html5",
             "scene": {
                 "id": scene.id,
-                "width": scene.width,
-                "height": scene.height,
-                "metadata": scene.metadata_,
+                "width": view_width,
+                "height": view_height,
+                "metadata": scene_metadata,
             },
             "root_node_id": scene.root_node_id,
             "nodes": [],
@@ -193,6 +265,11 @@ class HTML5ExportService:
                     )
                 )
 
+            transform = dict(node.transform or {})
+            if node.parent_id == scene.root_node_id or node.parent_id is None:
+                transform["x"] = float(transform.get("x", 0) or 0) + shift_x
+                transform["y"] = float(transform.get("y", 0) or 0) + shift_y
+
             scene_data["nodes"].append(
                 {
                     "id": node.id,
@@ -202,7 +279,7 @@ class HTML5ExportService:
                     "visible": node.visible,
                     "locked": node.locked,
                     "opacity": node.opacity,
-                    "transform": node.transform or {},
+                    "transform": transform,
                     "asset_id": node.asset_id,
                     "asset_file": asset_file,
                     "text_properties": node.text_properties,

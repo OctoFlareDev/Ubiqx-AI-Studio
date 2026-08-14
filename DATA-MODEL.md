@@ -98,6 +98,12 @@ Invariants:
 - The root node has no parent.
 - All other nodes are descendants of the root.
 
+Coordinate space:
+
+- A scene lives on an infinite, unbounded coordinate space; nodes may use negative coordinates.
+- `width` and `height` are a default viewport and source-size hint (for example, the PSD canvas size), not a clip region.
+- Export bounds are derived from the visible content's bounding box rather than the stored scene size.
+
 ## SceneNode
 
 Fields:

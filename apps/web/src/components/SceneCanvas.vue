@@ -163,13 +163,10 @@ function draw() {
   canvas.translate(pan.value.x, pan.value.y)
   canvas.scale(zoom.value, zoom.value)
 
-  const background = new ck.Paint()
-  background.setColor(ck.Color(255, 255, 255, 255))
-  canvas.drawRect(ck.XYWHRect(0, 0, currentScene.width, currentScene.height), background)
-  background.delete()
+  drawOriginMarker(canvas)
 
   absTransforms.clear()
-  const rootTransform = { x: 0, y: 0, width: currentScene.width, height: currentScene.height }
+  const rootTransform = { x: 0, y: 0, width: 0, height: 0 }
   const children = childrenOf(currentScene.root_node_id)
   for (const node of children) drawNode(canvas, node, rootTransform)
 
@@ -249,6 +246,18 @@ function drawText(canvas: Canvas, node: SceneNode, width: number, height: number
   paint.delete()
   font.delete()
   typeface.delete()
+}
+
+function drawOriginMarker(canvas: Canvas) {
+  const ck = canvasKit.value
+  if (!ck) return
+  const marker = new ck.Paint()
+  marker.setColor(ck.Color(0, 0, 0, 28))
+  marker.setStrokeWidth(1 / zoom.value)
+  const span = 18 / zoom.value
+  canvas.drawLine(-span, 0, span, 0, marker)
+  canvas.drawLine(0, -span, 0, span, marker)
+  marker.delete()
 }
 
 function drawSelection(canvas: Canvas, abs: AbsTransform) {
@@ -456,18 +465,65 @@ function zoomBy(factor: number) {
   zoom.value = Math.min(8, Math.max(0.1, zoom.value * factor))
 }
 
+function computeContentBounds() {
+  const rootId = scene.value?.root_node_id ?? null
+  const children = new Map<string | null, SceneNode[]>()
+  for (const node of nodes.value) {
+    if (node.type === 'root') continue
+    const key = node.parent_id ?? rootId
+    const list = children.get(key) ?? []
+    list.push(node)
+    children.set(key, list)
+  }
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  const walk = (parentId: string | null, px: number, py: number) => {
+    for (const node of children.get(parentId) ?? []) {
+      const t = node.transform || {}
+      const x = px + (t.x ?? 0)
+      const y = py + (t.y ?? 0)
+      const w = t.width ?? 0
+      const h = t.height ?? 0
+      if (node.visible !== false) {
+        minX = Math.min(minX, x)
+        minY = Math.min(minY, y)
+        maxX = Math.max(maxX, x + w)
+        maxY = Math.max(maxY, y + h)
+      }
+      walk(node.id, x, y)
+    }
+  }
+  walk(rootId, 0, 0)
+  if (!Number.isFinite(minX)) return null
+  return { minX, minY, maxX, maxY }
+}
+
 function fitView() {
-  const currentScene = scene.value
   const viewport = viewportRef.value
-  if (!currentScene || !viewport) return
+  if (!viewport) return
+  const bounds = computeContentBounds()
+  const fallbackWidth = scene.value?.width ?? 1920
+  const fallbackHeight = scene.value?.height ?? 1080
+  let width = fallbackWidth
+  let height = fallbackHeight
+  let centerX = width / 2
+  let centerY = height / 2
+  if (bounds) {
+    width = Math.max(1, bounds.maxX - bounds.minX)
+    height = Math.max(1, bounds.maxY - bounds.minY)
+    centerX = (bounds.minX + bounds.maxX) / 2
+    centerY = (bounds.minY + bounds.maxY) / 2
+  }
   zoom.value = Math.min(
-    (viewport.clientWidth - 56) / currentScene.width,
-    (viewport.clientHeight - 56) / currentScene.height,
+    (viewport.clientWidth - 56) / width,
+    (viewport.clientHeight - 56) / height,
     1,
   )
   pan.value = {
-    x: (viewport.clientWidth - currentScene.width * zoom.value) / 2,
-    y: (viewport.clientHeight - currentScene.height * zoom.value) / 2,
+    x: viewport.clientWidth / 2 - centerX * zoom.value,
+    y: viewport.clientHeight / 2 - centerY * zoom.value,
   }
 }
 
