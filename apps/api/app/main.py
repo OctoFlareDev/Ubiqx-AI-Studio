@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -240,8 +241,12 @@ def health() -> dict:
 
 @app.get("/ready")
 def ready(db: Session = Depends(get_db)) -> JSONResponse:
-    db.execute(text("SELECT 1"))
-    checks: dict[str, str] = {"database": "ok"}
+    checks: dict[str, str] = {}
+    try:
+        db.execute(text("SELECT 1"))
+        checks["database"] = "ok"
+    except SQLAlchemyError:
+        checks["database"] = "error"
     for name, path in (
         ("assets", settings.asset_dir),
         ("exports", settings.export_dir),
