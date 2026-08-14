@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import SceneNode
+from app.models import ExportJob, SceneNode
 
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -151,6 +151,39 @@ def test_export_title_uses_project_name(
     )
     assert preview.status_code == 200
     assert "<title>Project Display Name</title>" in preview.text
+
+
+def test_exports_keep_immutable_job_outputs(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    node = client.post(
+        f"/api/v1/projects/{project_id}/scene/nodes",
+        headers=auth_headers,
+        json={"type": "shape", "name": "Panel"},
+    )
+    assert node.status_code == 201
+
+    export_ids: list[str] = []
+    for _ in range(2):
+        response = client.post(
+            f"/api/v1/projects/{project_id}/exports",
+            headers=auth_headers,
+            json={"target": "html5"},
+        )
+        assert response.status_code == 201
+        export_ids.append(response.json()["id"])
+        job = _wait_for_terminal(client, auth_headers, f"/api/v1/exports/{export_ids[-1]}")
+        assert job["status"] == "succeeded"
+
+    db = SessionLocal()
+    try:
+        jobs = [db.get(ExportJob, export_id) for export_id in export_ids]
+        assert all(job is not None and job.output_path for job in jobs)
+        assert jobs[0].output_path != jobs[1].output_path
+    finally:
+        db.close()
 
 
 def test_empty_scene_cannot_export(

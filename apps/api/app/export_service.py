@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import shutil
+import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -171,7 +172,7 @@ class HTML5ExportService:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def export(self, project: Project, scene: Scene) -> tuple[Path, Path, dict, list[dict]]:
+    def export(self, project: Project, scene: Scene, *, export_id: str | None = None) -> tuple[Path, Path, dict, list[dict]]:
         if scene is None:
             raise ExportFailure("scene_missing")
 
@@ -191,7 +192,7 @@ class HTML5ExportService:
         assets = list(self.db.scalars(select(Asset).where(Asset.id.in_(asset_ids))).all()) if asset_ids else []
         assets_by_id = {asset.id: asset for asset in assets}
 
-        export_dir = settings.export_dir / project.id / "latest"
+        export_dir = settings.export_dir / project.id / (export_id or f"export-{uuid.uuid4().hex}")
         package_dir = export_dir / "package"
         assets_dir = package_dir / "assets"
         package_dir.mkdir(parents=True, exist_ok=True)
@@ -586,7 +587,11 @@ def run_export_job(job_id: str) -> None:
         if scene is None:
             raise ExportFailure("scene_missing")
 
-        package_path, _export_dir, manifest, warnings = HTML5ExportService(db).export(project, scene)
+        package_path, _export_dir, manifest, warnings = HTML5ExportService(db).export(
+            project,
+            scene,
+            export_id=job.id,
+        )
         job.output_path = str(package_path)
         job.manifest = manifest
         job.warnings = warnings
