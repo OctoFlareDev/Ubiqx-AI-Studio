@@ -428,7 +428,7 @@ function formatBytes(value: number): string {
             <label for="node-height">H</label>
             <input id="node-height" class="property-input" type="number" :value="studio.selectedNode.transform.height ?? 0" @change="commitSelectedNumber($event, 'height')" />
           </div>
-          <div class="property-field">
+          <div class="property-field rotation-opacity-field">
             <label for="node-rotation">Rot</label>
             <input id="node-rotation" class="property-input" type="number" :value="studio.selectedNode.transform.rotation ?? 0" @change="commitSelectedNumber($event, 'rotation')" />
             <label for="node-opacity">Opacity</label>
