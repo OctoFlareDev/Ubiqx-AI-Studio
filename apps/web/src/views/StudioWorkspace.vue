@@ -71,22 +71,43 @@ function startRename() {
   editingName.value = true
 }
 
+function handleActionError(error: unknown) {
+  studio.error = error instanceof Error ? error.message : 'An unexpected error occurred.'
+}
+
+async function runAction(action: () => Promise<unknown>) {
+  try {
+    await action()
+  } catch (error) {
+    handleActionError(error)
+  }
+}
+
 async function saveName() {
   if (!project.value || !nameDraft.value.trim()) {
     editingName.value = false
     return
   }
   saveState.value = 'saving'
-  await studio.renameProject(project.value.id, nameDraft.value.trim())
-  editingName.value = false
-  saveState.value = 'saved'
+  try {
+    await studio.renameProject(project.value.id, nameDraft.value.trim())
+    editingName.value = false
+    saveState.value = 'saved'
+  } catch (error) {
+    saveState.value = 'idle'
+    handleActionError(error)
+  }
 }
 
 async function saveProject() {
   if (!project.value) return
   saveState.value = 'saving'
-  await studio.renameProject(project.value.id, project.value.name)
-  saveState.value = 'saved'
+  let saved = false
+  await runAction(async () => {
+    await studio.renameProject(project.value!.id, project.value!.name)
+    saved = true
+  })
+  saveState.value = saved ? 'saved' : 'idle'
 }
 
 function triggerUpload() {
@@ -97,39 +118,44 @@ async function onFileSelected(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file || !project.value) return
-  await studio.uploadAsset(project.value.id, file)
+  await runAction(() => studio.uploadAsset(project.value!.id, file))
   input.value = ''
 }
 
 async function removeSelectedAsset() {
   if (!selectedAsset.value) return
   if (!window.confirm(`Delete ${selectedAsset.value.original_name} from this project?`)) return
-  await studio.deleteAsset(selectedAsset.value.id)
-  selectedAssetId.value = null
+  const assetId = selectedAsset.value.id
+  await runAction(async () => {
+    await studio.deleteAsset(assetId)
+    selectedAssetId.value = null
+  })
 }
 
 async function importSelectedAsset() {
   if (!project.value || !selectedAsset.value) return
-  await studio.importSourceAsset(project.value.id, selectedAsset.value.id)
+  await runAction(() => studio.importSourceAsset(project.value!.id, selectedAsset.value!.id))
 }
 
 function cancelImport() {
-  void studio.cancelImport()
+  void runAction(() => studio.cancelImport())
 }
 
 async function runAiTask(operation: 'upscale' | 'remove_background') {
   if (!project.value || !selectedAsset.value) return
-  await studio.runAiTask(project.value.id, selectedAsset.value.id, operation)
+  await runAction(() => studio.runAiTask(project.value!.id, selectedAsset.value!.id, operation))
 }
 
 async function addSelectedAssetToCanvas() {
   if (!selectedAsset.value) return
-  const node = await studio.addAssetToCanvas(selectedAsset.value.id)
-  if (node) selectedAssetId.value = null
+  await runAction(async () => {
+    const node = await studio.addAssetToCanvas(selectedAsset.value!.id)
+    if (node) selectedAssetId.value = null
+  })
 }
 
 function cancelAiTask() {
-  void studio.cancelAiTask()
+  void runAction(() => studio.cancelAiTask())
 }
 
 async function exportProject() {
@@ -148,12 +174,12 @@ async function exportProject() {
 
 async function previewExport() {
   if (!studio.activeExportJob) return
-  await studio.loadExportPreview(studio.activeExportJob.id)
+  await runAction(() => studio.loadExportPreview(studio.activeExportJob!.id))
 }
 
 async function downloadExport() {
   if (!studio.activeExportJob) return
-  await studio.downloadExport(studio.activeExportJob.id)
+  await runAction(() => studio.downloadExport(studio.activeExportJob!.id))
 }
 
 function selectLayer(node: SceneNode) {
@@ -167,11 +193,11 @@ function selectAsset(assetId: string) {
 }
 
 async function toggleLayerVisible(node: SceneNode) {
-  await studio.toggleNodeVisibility(node.id)
+  await runAction(() => studio.toggleNodeVisibility(node.id))
 }
 
 async function toggleLayerLocked(node: SceneNode) {
-  await studio.toggleNodeLocked(node.id)
+  await runAction(() => studio.toggleNodeLocked(node.id))
 }
 
 function commitSelectedName(event: Event) {
@@ -179,7 +205,7 @@ function commitSelectedName(event: Event) {
   if (!node) return
   const value = (event.target as HTMLInputElement).value.trim()
   if (!value) return
-  void studio.commitNodeProperties(node.id, { name: value })
+  void runAction(() => studio.commitNodeProperties(node.id, { name: value }))
 }
 
 function commitSelectedNumber(event: Event, field: 'opacity' | 'x' | 'y' | 'width' | 'height' | 'rotation') {
@@ -191,7 +217,7 @@ function commitSelectedNumber(event: Event, field: 'opacity' | 'x' | 'y' | 'widt
     field === 'opacity'
       ? { opacity: Math.min(1, Math.max(0, value)) }
       : { transform: { ...node.transform, [field]: value } }
-  void studio.commitNodeProperties(node.id, patch)
+  void runAction(() => studio.commitNodeProperties(node.id, patch))
 }
 
 function previewSelectedOpacity(event: Event) {
@@ -254,6 +280,14 @@ function formatBytes(value: number): string {
       <AlertTriangle :size="16" />
       <span>{{ exportError }}</span>
       <button class="icon-button subtle" type="button" aria-label="Dismiss export message" @click="exportError = null">
+        <X :size="14" />
+      </button>
+    </div>
+
+    <div v-if="studio.error && !exportError" class="studio-status-banner error" role="alert">
+      <AlertTriangle :size="16" />
+      <span>{{ studio.error }}</span>
+      <button class="icon-button subtle" type="button" aria-label="Dismiss message" @click="studio.error = null">
         <X :size="14" />
       </button>
     </div>
