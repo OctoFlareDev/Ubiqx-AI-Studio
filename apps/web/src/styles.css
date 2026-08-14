@@ -722,6 +722,24 @@ button:disabled {
   height: 100%;
 }
 
+.canvas-inline-error {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: calc(100% - 24px);
+  padding: 8px 10px;
+  transform: translateX(-50%);
+  border: 1px solid #f1c1ba;
+  border-radius: 6px;
+  background: #fff4f2;
+  color: #9d2f24;
+  font-size: 12px;
+}
+
 .canvas-empty-state {
   display: grid;
   place-items: center;

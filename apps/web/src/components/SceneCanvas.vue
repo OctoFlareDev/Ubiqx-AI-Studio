@@ -33,6 +33,7 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 const canvasKit = shallowRef<CanvasKit | null>(null)
 const surface = shallowRef<SkSurface | null>(null)
 const canvasError = ref<string | null>(null)
+const imageError = ref<string | null>(null)
 const zoom = ref(1)
 const pan = ref({ x: 0, y: 0 })
 const spacePressed = ref(false)
@@ -42,6 +43,7 @@ const absTransforms = new Map<string, AbsTransform>()
 const IDENTITY_MATRIX: Matrix = [1, 0, 0, 1, 0, 0]
 
 let drawQueued = false
+let resizeObserver: ResizeObserver | null = null
 let interaction:
   | {
       type: 'move' | 'resize' | 'pan'
@@ -94,6 +96,10 @@ onMounted(async () => {
   window.addEventListener('keydown', handleKeyDown)
   window.addEventListener('keyup', handleKeyUp)
   window.addEventListener('resize', resizeCanvas)
+  if (typeof ResizeObserver !== 'undefined' && viewportRef.value) {
+    resizeObserver = new ResizeObserver(resizeCanvas)
+    resizeObserver.observe(viewportRef.value)
+  }
   await initCanvasKit()
   resizeCanvas()
   fitView()
@@ -103,6 +109,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeyDown)
   window.removeEventListener('keyup', handleKeyUp)
   window.removeEventListener('resize', resizeCanvas)
+  resizeObserver?.disconnect()
+  resizeObserver = null
   surface.value?.dispose()
   surface.value = null
   for (const image of images.values()) image.delete()
@@ -141,6 +149,7 @@ function resizeCanvas() {
 async function loadImages() {
   const ck = canvasKit.value
   if (!ck) return
+  imageError.value = null
   for (const node of nodes.value) {
     if (!node.asset_id || images.has(node.asset_id)) continue
     const asset = studio.assets.find((item) => item.id === node.asset_id)
@@ -150,11 +159,17 @@ async function loadImages() {
       const bytes = new Uint8Array(await blob.arrayBuffer())
       const image = ck.MakeImageFromEncoded(bytes)
       if (image) images.set(asset.id, image)
+      else imageError.value = 'One or more asset previews could not be decoded.'
     } catch {
-      // The node still renders as a placeholder until its image is available.
+      imageError.value = 'One or more asset previews could not be loaded.'
     }
   }
   scheduleDraw()
+}
+
+function retryImageLoads() {
+  imageError.value = null
+  void loadImages()
 }
 
 function scheduleDraw() {
@@ -598,7 +613,9 @@ function onWheel(event: WheelEvent) {
 }
 
 function zoomBy(factor: number) {
-  zoom.value = Math.min(8, Math.max(0.1, zoom.value * factor))
+  const rect = viewportRef.value?.getBoundingClientRect()
+  if (!rect) return
+  zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor)
 }
 
 function computeContentBounds() {
@@ -731,6 +748,10 @@ function handleKeyUp(event: KeyboardEvent) {
       @pointercancel="onPointerUp"
       @wheel="onWheel"
     >
+      <div v-if="imageError" class="canvas-inline-error" role="alert">
+        <span>{{ imageError }}</span>
+        <button class="secondary-button compact" type="button" @click="retryImageLoads">Retry</button>
+      </div>
       <canvas ref="canvasRef" data-testid="canvaskit-canvas" />
       <div v-if="canvasError" class="canvas-fallback">
         <Layers3 :size="22" />
