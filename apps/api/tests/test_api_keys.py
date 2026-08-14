@@ -1,5 +1,8 @@
 from fastapi.testclient import TestClient
 
+from app.db import SessionLocal
+from app.models import ApiKey
+
 
 def _create_scoped_key(client: TestClient, auth_headers: dict[str, str], scopes: list[str]) -> tuple[str, str]:
     response = client.post(
@@ -26,6 +29,15 @@ def test_create_list_and_revoke_api_key(client: TestClient, auth_headers: dict[s
     assert body["key"]["name"] == "Agent Key"
     assert body["key"]["scopes"] == ["projects:read"]
     assert body["key"]["revoked_at"] is None
+
+    db = SessionLocal()
+    try:
+        stored = db.get(ApiKey, key_id)
+        assert stored is not None
+        assert "$" in stored.key_hash
+        assert raw_key not in stored.key_hash
+    finally:
+        db.close()
 
     listing = client.get("/api/v1/api-keys", headers=auth_headers)
     assert listing.status_code == 200

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -13,6 +14,7 @@ from .models import ApiKey, LocalUser
 
 
 WILDCARD_SCOPE = "*"
+KEY_HASH_ITERATIONS = 200_000
 
 KNOWN_SCOPES: frozenset[str] = frozenset({
     "projects:read",
@@ -56,7 +58,18 @@ def normalize_scopes(scopes: list[str] | None) -> list[str]:
     return result
 
 
-def _hash_key(user_id: str, raw_key: str) -> str:
+def _hash_key(raw_key: str, salt: str | None = None) -> str:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        raw_key.encode("utf-8"),
+        salt.encode("ascii"),
+        KEY_HASH_ITERATIONS,
+    ).hex()
+    return f"{salt}${digest}"
+
+
+def _legacy_hash_key(user_id: str, raw_key: str) -> str:
     return hashlib.sha256(f"{user_id}:{raw_key}".encode("utf-8")).hexdigest()
 
 
@@ -71,7 +84,7 @@ def create_api_key(
     key = ApiKey(
         id=str(uuid.uuid4()),
         user_id=user.id,
-        key_hash=_hash_key(user.id, raw_key),
+        key_hash=_hash_key(raw_key),
         name=name,
         scopes=scopes or [WILDCARD_SCOPE],
         expires_at=expires_at,
@@ -104,14 +117,30 @@ def verify_api_key(db: Session, raw_key: str) -> tuple[ApiKey, LocalUser] | None
     user = db.scalar(select(LocalUser).order_by(LocalUser.created_at.asc()).limit(1))
     if user is None:
         return None
-    expected_hash = _hash_key(user.id, raw_key)
-    key = db.scalar(select(ApiKey).where(ApiKey.key_hash == expected_hash))
+    keys = db.scalars(select(ApiKey).where(ApiKey.user_id == user.id)).all()
+    key: ApiKey | None = None
+    migrated = False
+    for candidate in keys:
+        candidate_migrated = False
+        if "$" in candidate.key_hash:
+            salt, expected_digest = candidate.key_hash.split("$", 1)
+            actual_digest = _hash_key(raw_key, salt).split("$", 1)[1]
+            matches = hmac.compare_digest(actual_digest, expected_digest)
+        else:
+            matches = hmac.compare_digest(candidate.key_hash, _legacy_hash_key(user.id, raw_key))
+            candidate_migrated = matches
+        if matches:
+            key = candidate
+            migrated = candidate_migrated
+            break
     if key is None:
         return None
     now = datetime.now(timezone.utc)
     if key.revoked_at is not None or (key.expires_at is not None and key.expires_at <= now):
         return None
     key.last_used_at = now
+    if migrated:
+        key.key_hash = _hash_key(raw_key)
     db.commit()
     return key, user
 
