@@ -115,7 +115,8 @@ export const useStudioStore = defineStore('studio', {
       if (this.currentProjectId === projectId) this.currentProjectId = null
     },
     async openProject(projectId: string) {
-      this.currentProjectId = projectId
+      this.loading = true
+      this.currentProjectId = null
       this.scene = null
       this.nodes = []
       this.selectedNodeId = null
@@ -124,12 +125,17 @@ export const useStudioStore = defineStore('studio', {
       this.assets = []
       try {
         const [scene, assets] = await Promise.all([api.getScene(projectId), api.listAssets(projectId)])
+        const loadedNodes = scene.id ? await api.listNodes(scene.id) : []
+        this.currentProjectId = projectId
         this.scene = scene
         this.assets = assets
-        if (scene.id) this.nodes = await api.listNodes(scene.id)
+        this.nodes = loadedNodes
         this.error = null
       } catch (error) {
         this.error = toMessage(error)
+        this.currentProjectId = null
+      } finally {
+        this.loading = false
       }
     },
     async loadAssets(projectId: string) {
