@@ -259,7 +259,7 @@ export const useStudioStore = defineStore('studio', {
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
-      link.download = `ubiqx-html5-export.zip`
+      link.download = `${safeDownloadName(this.currentProject?.name ?? 'ubiqx')}.html5.zip`
       document.body.appendChild(link)
       link.click()
       link.remove()
@@ -440,4 +440,9 @@ function cloneNodes(nodes: SceneNode[]): SceneNode[] {
 function toMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   return 'An unexpected error occurred.'
+}
+
+function safeDownloadName(name: string): string {
+  const cleaned = name.replace(/[^a-zA-Z0-9._ -]/g, '').trim().replace(/\s+/g, '_')
+  return (cleaned || 'ubiqx').slice(0, 120)
 }
