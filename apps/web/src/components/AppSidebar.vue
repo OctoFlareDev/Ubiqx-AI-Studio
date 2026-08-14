@@ -39,7 +39,8 @@ function openAssets() {
         :class="{ active: Boolean(studio.currentProjectId) && studio.activePanel === 'assets' }"
         type="button"
         aria-label="Assets"
-        title="Open the project asset library"
+        :disabled="!studio.currentProjectId"
+        :title="studio.currentProjectId ? 'Open the project asset library' : 'Open a project to view assets'"
         @click="openAssets"
       >
         <Images :size="18" />
