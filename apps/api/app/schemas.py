@@ -138,6 +138,10 @@ class SceneNodeCreate(BaseModel):
     name: str = Field(default="Layer", min_length=1, max_length=160)
     transform: Transform = Field(default_factory=Transform)
     opacity: float = Field(default=1, ge=0, le=1)
+    asset_id: str | None = None
+    text_properties: dict[str, Any] | None = None
+    style_properties: dict[str, Any] | None = None
+    effect_metadata: dict[str, Any] | None = None
 
     @field_validator("name")
     @classmethod
@@ -154,6 +158,10 @@ class SceneNodeUpdate(BaseModel):
     locked: bool | None = None
     opacity: float | None = Field(default=None, ge=0, le=1)
     transform: Transform | None = None
+    asset_id: str | None = None
+    text_properties: dict[str, Any] | None = None
+    style_properties: dict[str, Any] | None = None
+    effect_metadata: dict[str, Any] | None = None
 
     @field_validator("name")
     @classmethod

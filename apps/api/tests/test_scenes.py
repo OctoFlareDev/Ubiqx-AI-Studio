@@ -1,6 +1,13 @@
 from fastapi.testclient import TestClient
 
 
+PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+    b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00"
+    b"\x1f\x15\xc4\x89"
+)
+
+
 def test_created_project_has_root_scene_and_node(
     client: TestClient,
     auth_headers: dict[str, str],
@@ -181,3 +188,53 @@ def test_scene_node_names_must_not_be_blank(
         json={"name": "\n"},
     )
     assert update_response.status_code == 400
+
+
+def test_scene_node_can_reference_project_asset_and_metadata(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project = client.post(
+        "/api/v1/projects",
+        headers=auth_headers,
+        json={"name": "Asset Placement API"},
+    ).json()
+    scene = client.get(f"/api/v1/projects/{project['id']}/scene", headers=auth_headers).json()
+    asset = client.post(
+        f"/api/v1/projects/{project['id']}/assets",
+        headers=auth_headers,
+        files={"file": ("button.png", PNG_BYTES, "image/png")},
+    ).json()
+
+    node = client.post(
+        f"/api/v1/projects/{project['id']}/scene/nodes",
+        headers=auth_headers,
+        json={
+            "type": "image",
+            "name": "Placed Button",
+            "asset_id": asset["id"],
+            "text_properties": {"alt": "Button"},
+            "style_properties": {"fit": "contain"},
+            "effect_metadata": {"source": "user"},
+        },
+    )
+    assert node.status_code == 201
+    body = node.json()
+    assert body["asset_id"] == asset["id"]
+    assert body["text_properties"] == {"alt": "Button"}
+    assert body["style_properties"] == {"fit": "contain"}
+    assert body["effect_metadata"] == {"source": "user"}
+
+    update = client.patch(
+        f"/api/v1/scenes/{scene['id']}/nodes/{body['id']}",
+        headers=auth_headers,
+        json={"asset_id": asset["id"]},
+    )
+    assert update.status_code == 200
+
+    missing_asset = client.post(
+        f"/api/v1/projects/{project['id']}/scene/nodes",
+        headers=auth_headers,
+        json={"type": "image", "asset_id": "missing-asset"},
+    )
+    assert missing_asset.status_code == 404

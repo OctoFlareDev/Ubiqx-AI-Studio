@@ -490,6 +490,10 @@ def create_scene_node(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scene_not_found")
     parent_id = payload.parent_id or scene.root_node_id
     _validate_scene_parent(db, scene.id, parent_id)
+    if payload.asset_id is not None:
+        asset = db.get(Asset, payload.asset_id)
+        if asset is None or asset.project_id != project_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="asset_not_found")
     node = SceneNode(
         id=str(uuid.uuid4()),
         scene_id=scene.id,
@@ -498,6 +502,10 @@ def create_scene_node(
         name=payload.name,
         opacity=payload.opacity,
         transform=payload.transform.model_dump(),
+        asset_id=payload.asset_id,
+        text_properties=payload.text_properties,
+        style_properties=payload.style_properties,
+        effect_metadata=payload.effect_metadata,
         order_index=len(scene.nodes),
     )
     db.add(node)
@@ -545,6 +553,17 @@ def update_scene_node(
         node.opacity = payload.opacity
     if payload.transform is not None:
         node.transform = payload.transform.model_dump()
+    if payload.asset_id is not None:
+        asset = db.get(Asset, payload.asset_id)
+        if asset is None or asset.project_id != node.scene.project_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="asset_not_found")
+        node.asset_id = payload.asset_id
+    if payload.text_properties is not None:
+        node.text_properties = payload.text_properties
+    if payload.style_properties is not None:
+        node.style_properties = payload.style_properties
+    if payload.effect_metadata is not None:
+        node.effect_metadata = payload.effect_metadata
     node.updated_at = _now()
     db.commit()
     db.refresh(node)
