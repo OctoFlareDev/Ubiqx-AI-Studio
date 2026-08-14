@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 
+
 def test_bootstrap_creates_local_session(client: TestClient) -> None:
     response = client.post("/api/v1/auth/bootstrap")
     assert response.status_code == 200
@@ -19,4 +20,3 @@ def test_profile_rejects_missing_key(client: TestClient) -> None:
     response = client.get("/api/v1/auth/profile")
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "unauthorized"
-

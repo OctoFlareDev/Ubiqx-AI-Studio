@@ -26,6 +26,7 @@ class Settings:
     rate_limit_per_key: int = int(os.getenv("UBIQX_RATE_LIMIT", "1000"))
     rate_limit_window_seconds: float = float(os.getenv("UBIQX_RATE_LIMIT_WINDOW_SECONDS", "60"))
     job_timeout_seconds: float = float(os.getenv("UBIQX_JOB_TIMEOUT_SECONDS", "300"))
+    allow_remote_bootstrap: bool = os.getenv("UBIQX_ALLOW_REMOTE_BOOTSTRAP", "0").lower() in {"1", "true", "yes"}
 
     @property
     def resolved_database_url(self) -> str:

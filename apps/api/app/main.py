@@ -6,6 +6,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from ipaddress import ip_address
 from pathlib import Path
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile, status
@@ -264,7 +265,14 @@ def api_health() -> dict:
 
 
 @app.post("/api/v1/auth/bootstrap", response_model=BootstrapResponse)
-def bootstrap(db: Session = Depends(get_db)) -> BootstrapResponse:
+def bootstrap(request: Request, db: Session = Depends(get_db)) -> BootstrapResponse:
+    client_host = request.client.host if request.client else ""
+    try:
+        is_loopback = ip_address(client_host).is_loopback
+    except ValueError:
+        is_loopback = True
+    if not is_loopback and not settings.allow_remote_bootstrap:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="remote_bootstrap_disabled")
     user = get_or_create_local_user(db)
     key, raw_key = create_api_key(db, user)
     return BootstrapResponse(user=ProfileRead.model_validate(user), api_key=raw_key)
