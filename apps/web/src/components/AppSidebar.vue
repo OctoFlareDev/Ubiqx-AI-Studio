@@ -10,6 +10,10 @@ const displayName = computed(() => studio.profile?.display_name ?? 'Local Design
 function showProjects() {
   studio.closeProject()
 }
+
+function openAssets() {
+  studio.setActivePanel('assets')
+}
 </script>
 
 <template>
@@ -24,7 +28,13 @@ function showProjects() {
         <FolderKanban :size="18" />
         <span>Projects</span>
       </button>
-      <button class="nav-item" type="button" title="Asset library arrives with imports">
+      <button
+        class="nav-item"
+        :class="{ active: Boolean(studio.currentProjectId) && studio.activePanel === 'assets' }"
+        type="button"
+        title="Open the project asset library"
+        @click="openAssets"
+      >
         <Images :size="18" />
         <span>Assets</span>
       </button>

@@ -29,7 +29,6 @@ const studio = useStudioStore()
 const project = computed(() => studio.currentProject)
 const editingName = ref(false)
 const nameDraft = ref('')
-const activePanel = ref<'layers' | 'assets'>('layers')
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedAssetId = ref<string | null>(null)
 const saveState = ref<'idle' | 'saving' | 'saved'>('saved')
@@ -253,17 +252,17 @@ function formatBytes(value: number): string {
     <div class="studio-body">
       <aside class="left-panel">
         <div class="panel-tabs">
-          <button type="button" :class="{ active: activePanel === 'layers' }" @click="activePanel = 'layers'">
+          <button type="button" :class="{ active: studio.activePanel === 'layers' }" @click="studio.setActivePanel('layers')">
             <Layers3 :size="16" />
             Layers
           </button>
-          <button type="button" :class="{ active: activePanel === 'assets' }" @click="activePanel = 'assets'">
+          <button type="button" :class="{ active: studio.activePanel === 'assets' }" @click="studio.setActivePanel('assets')">
             <FileImage :size="16" />
             Assets
           </button>
         </div>
 
-        <div v-if="activePanel === 'layers'" class="panel-content">
+        <div v-if="studio.activePanel === 'layers'" class="panel-content">
           <div v-if="layerRows.length" class="layer-list">
             <div
               v-for="row in layerRows"

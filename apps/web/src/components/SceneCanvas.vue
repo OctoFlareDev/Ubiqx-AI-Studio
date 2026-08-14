@@ -336,6 +336,8 @@ function resizeHandleAt(point: { x: number; y: number }, abs: AbsTransform): Res
 }
 
 function onPointerDown(event: PointerEvent) {
+  const target = event.currentTarget as HTMLElement | null
+  target?.setPointerCapture?.(event.pointerId)
   if (event.button === 1 || spacePressed.value) {
     interaction = { type: 'pan', startSceneX: event.clientX, startSceneY: event.clientY }
     event.preventDefault()
@@ -447,18 +449,42 @@ async function onPointerUp() {
   }
 }
 
-function onWheel(event: WheelEvent) {
-  event.preventDefault()
+function isTrackpadScroll(event: WheelEvent) {
+  // Mouse wheels report integer (or line-mode) deltas; trackpad two-finger
+  // scroll reports pixel-mode deltas with a horizontal component and/or a
+  // fractional vertical component.
+  if (event.deltaMode !== 0) return false
+  if (Math.abs(event.deltaX) > 0) return true
+  return Math.abs(event.deltaY) % 1 !== 0
+}
+
+function zoomAt(clientX: number, clientY: number, factor: number) {
   const rect = canvasRef.value?.getBoundingClientRect()
   if (!rect) return
-  const factor = event.deltaY < 0 ? 1.12 : 0.9
   const nextZoom = Math.min(8, Math.max(0.1, zoom.value * factor))
-  const point = toScene(event.clientX, event.clientY)
+  const point = toScene(clientX, clientY)
   pan.value = {
-    x: event.clientX - rect.left - point.x * nextZoom,
-    y: event.clientY - rect.top - point.y * nextZoom,
+    x: clientX - rect.left - point.x * nextZoom,
+    y: clientY - rect.top - point.y * nextZoom,
   }
   zoom.value = nextZoom
+}
+
+function onWheel(event: WheelEvent) {
+  event.preventDefault()
+  if (event.ctrlKey || event.metaKey) {
+    // Pinch gesture (or Ctrl/Cmd + wheel) zooms around the cursor.
+    zoomAt(event.clientX, event.clientY, event.deltaY < 0 ? 1.12 : 0.9)
+    return
+  }
+  if (isTrackpadScroll(event)) {
+    // Two-finger trackpad scroll pans the canvas.
+    pan.value = { x: pan.value.x - event.deltaX, y: pan.value.y - event.deltaY }
+    scheduleDraw()
+    return
+  }
+  // Mouse wheel keeps zooming around the cursor (preserved behavior).
+  zoomAt(event.clientX, event.clientY, event.deltaY < 0 ? 1.12 : 0.9)
 }
 
 function zoomBy(factor: number) {

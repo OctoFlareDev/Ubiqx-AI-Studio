@@ -22,6 +22,7 @@ interface StudioState {
   aiProcessing: boolean
   saving: boolean
   exportPreviewUrl: string | null
+  activePanel: 'layers' | 'assets'
   loading: boolean
   error: string | null
 }
@@ -46,6 +47,7 @@ export const useStudioStore = defineStore('studio', {
     aiProcessing: false,
     saving: false,
     exportPreviewUrl: null,
+    activePanel: 'layers',
     loading: false,
     error: null,
   }),
@@ -246,6 +248,9 @@ export const useStudioStore = defineStore('studio', {
     },
     selectNode(nodeId: string | null) {
       this.selectedNodeId = nodeId
+    },
+    setActivePanel(panel: 'layers' | 'assets') {
+      this.activePanel = panel
     },
     startMutation() {
       this.past.push(cloneNodes(this.nodes))
