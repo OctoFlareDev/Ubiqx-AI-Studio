@@ -591,7 +591,7 @@ def _get_or_create_imported_asset(
         byte_size=parsed.byte_size,
         storage_path=parsed.storage_path,
         source="psd_import",
-        metadata={"source": "psd_layer"},
+        metadata_={"source": "psd_layer"},
     )
     db.add(asset)
     db.flush()

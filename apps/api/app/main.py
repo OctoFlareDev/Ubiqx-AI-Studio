@@ -972,7 +972,7 @@ async def upload_asset(
         byte_size=stored["byte_size"],
         storage_path=stored["storage_path"],
         source="upload",
-        metadata=stored.get("metadata", {}),
+        metadata_=stored.get("metadata", {}),
     )
     db.add(asset)
     db.commit()

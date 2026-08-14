@@ -300,7 +300,7 @@ def _get_or_create_ai_asset(
         byte_size=stored["byte_size"],
         storage_path=stored["storage_path"],
         source="ai_processed",
-        metadata={
+        metadata_={
             "operation": task.operation,
             "provider": task.provider,
             "input_asset_id": input_asset.id,
