@@ -14,15 +14,20 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .db import get_db, init_db
-from .deps import get_current_user, get_owned_project
+from .deps import get_current_user, get_owned_project, require_scope
 from .ai_service import CANCELLATION_REQUESTS as AI_CANCELLATION_REQUESTS, run_ai_task
 from .export_service import run_export_job, scene_has_exportable_nodes
 from .import_service import CANCELLATION_REQUESTS, run_import_job
-from .models import AiTask, Asset, ExportJob, ImportJob, LocalUser, Project, Scene, SceneNode
+from .models import AiTask, ApiKey, Asset, ExportJob, ImportJob, LocalUser, Project, Scene, SceneNode
+from .rate_limit import SlidingWindowRateLimiter, rate_limit_key
 from .schemas import (
     AiTaskCreate,
     AiTaskList,
     AiTaskRead,
+    ApiKeyCreate,
+    ApiKeyCreated,
+    ApiKeyList,
+    ApiKeyRead,
     AssetRead,
     BootstrapResponse,
     ErrorEnvelope,
@@ -41,7 +46,14 @@ from .schemas import (
     SceneNodeUpdate,
     SceneRead,
 )
-from .security import create_api_key, get_or_create_local_user
+from .security import (
+    UnknownScopeError,
+    create_api_key,
+    get_or_create_local_user,
+    list_api_keys,
+    normalize_scopes,
+    revoke_api_key,
+)
 from .storage import AssetStore
 
 
@@ -57,6 +69,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.rate_limiter = SlidingWindowRateLimiter(
+    settings.rate_limit_per_key,
+    settings.rate_limit_window_seconds,
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.allowed_origins),
@@ -64,6 +81,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    if request.url.path.startswith("/api/v1"):
+        limiter = getattr(request.app.state, "rate_limiter", None)
+        if limiter is not None and not limiter.allow(rate_limit_key(request)):
+            request_id = getattr(request.state, "request_id", None) or f"req_{uuid.uuid4().hex}"
+            return JSONResponse(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                content={
+                    "error": {
+                        "code": "rate_limited",
+                        "message": "Too many requests. Retry after the rate limit window.",
+                        "request_id": request_id,
+                    }
+                },
+            )
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -89,7 +125,10 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    if exc.status_code == status.HTTP_400_BAD_REQUEST and isinstance(exc.detail, str):
+    if isinstance(exc.detail, str) and exc.status_code in {
+        status.HTTP_400_BAD_REQUEST,
+        status.HTTP_403_FORBIDDEN,
+    }:
         code = exc.detail
     else:
         code = {
@@ -145,9 +184,62 @@ def profile(user: LocalUser = Depends(get_current_user)) -> LocalUser:
     return user
 
 
+DEFAULT_READ_SCOPES = [
+    "projects:read",
+    "assets:read",
+    "scenes:read",
+    "imports:read",
+    "exports:read",
+    "ai:read",
+]
+
+
+@app.get("/api/v1/api-keys", response_model=ApiKeyList)
+def list_user_api_keys(
+    user: LocalUser = Depends(require_scope("api_keys:read")),
+    db: Session = Depends(get_db),
+) -> ApiKeyList:
+    keys = list_api_keys(db, user)
+    return ApiKeyList(items=[ApiKeyRead.model_validate(key) for key in keys], next_cursor=None)
+
+
+@app.post("/api/v1/api-keys", response_model=ApiKeyCreated, status_code=status.HTTP_201_CREATED)
+def create_user_api_key(
+    payload: ApiKeyCreate,
+    user: LocalUser = Depends(require_scope("api_keys:write")),
+    db: Session = Depends(get_db),
+) -> ApiKeyCreated:
+    try:
+        normalized = normalize_scopes(payload.scopes or DEFAULT_READ_SCOPES)
+    except UnknownScopeError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unknown_scope") from None
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from None
+    key, raw_key = create_api_key(
+        db,
+        user,
+        name=payload.name,
+        scopes=normalized,
+        expires_at=payload.expires_at,
+    )
+    return ApiKeyCreated(key=ApiKeyRead.model_validate(key), api_key=raw_key)
+
+
+@app.post("/api/v1/api-keys/{key_id}/revoke", response_model=ApiKeyRead)
+def revoke_user_api_key(
+    key_id: str,
+    user: LocalUser = Depends(require_scope("api_keys:write")),
+    db: Session = Depends(get_db),
+) -> ApiKey:
+    key = db.get(ApiKey, key_id)
+    if key is None or key.user_id != user.id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="api_key_not_found")
+    return revoke_api_key(db, key)
+
+
 @app.get("/api/v1/projects", response_model=ProjectList)
 def list_projects(
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("projects:read")),
     db: Session = Depends(get_db),
 ) -> ProjectList:
     projects = db.scalars(
@@ -161,7 +253,7 @@ def list_projects(
 @app.post("/api/v1/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
 def create_project(
     payload: ProjectCreate,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("projects:write")),
     db: Session = Depends(get_db),
 ) -> Project:
     project_id = str(uuid.uuid4())
@@ -198,7 +290,7 @@ def create_project(
 @app.get("/api/v1/projects/{project_id}", response_model=ProjectRead)
 def get_project(
     project_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("projects:read")),
     db: Session = Depends(get_db),
 ) -> Project:
     return get_owned_project(project_id, user, db)
@@ -208,7 +300,7 @@ def get_project(
 def update_project(
     project_id: str,
     payload: ProjectUpdate,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("projects:write")),
     db: Session = Depends(get_db),
 ) -> Project:
     project = get_owned_project(project_id, user, db)
@@ -227,7 +319,7 @@ def update_project(
 @app.post("/api/v1/projects/{project_id}/archive", response_model=ProjectRead)
 def archive_project(
     project_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("projects:write")),
     db: Session = Depends(get_db),
 ) -> Project:
     project = get_owned_project(project_id, user, db)
@@ -241,7 +333,7 @@ def archive_project(
 @app.post("/api/v1/projects/{project_id}/restore", response_model=ProjectRead)
 def restore_project(
     project_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("projects:write")),
     db: Session = Depends(get_db),
 ) -> Project:
     project = db.get(Project, project_id)
@@ -257,7 +349,7 @@ def restore_project(
 @app.delete("/api/v1/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(
     project_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("projects:write")),
     db: Session = Depends(get_db),
 ) -> None:
     project = get_owned_project(project_id, user, db)
@@ -269,7 +361,7 @@ def delete_project(
 @app.get("/api/v1/projects/{project_id}/scene", response_model=SceneRead)
 def get_project_scene(
     project_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("scenes:read")),
     db: Session = Depends(get_db),
 ) -> Scene:
     project = get_owned_project(project_id, user, db)
@@ -284,7 +376,7 @@ def get_project_scene(
 @app.get("/api/v1/scenes/{scene_id}/nodes", response_model=list[SceneNodeRead])
 def list_scene_nodes(
     scene_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("scenes:read")),
     db: Session = Depends(get_db),
 ) -> list[SceneNode]:
     scene = db.get(Scene, scene_id)
@@ -300,7 +392,7 @@ def list_scene_nodes(
 def create_scene_node(
     project_id: str,
     payload: SceneNodeCreate,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("scenes:write")),
     db: Session = Depends(get_db),
 ) -> SceneNode:
     project = get_owned_project(project_id, user, db)
@@ -328,7 +420,7 @@ def create_scene_node(
 def get_scene_node(
     scene_id: str,
     node_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("scenes:read")),
     db: Session = Depends(get_db),
 ) -> SceneNode:
     node = db.get(SceneNode, node_id)
@@ -348,7 +440,7 @@ def update_scene_node(
     scene_id: str,
     node_id: str,
     payload: SceneNodeUpdate,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("scenes:write")),
     db: Session = Depends(get_db),
 ) -> SceneNode:
     node = get_scene_node(scene_id, node_id, user, db)
@@ -372,7 +464,7 @@ def update_scene_node(
 def delete_scene_node(
     scene_id: str,
     node_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("scenes:write")),
     db: Session = Depends(get_db),
 ) -> None:
     node = get_scene_node(scene_id, node_id, user, db)
@@ -385,7 +477,7 @@ def move_scene_node(
     scene_id: str,
     node_id: str,
     payload: SceneNodeMove,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("scenes:write")),
     db: Session = Depends(get_db),
 ) -> SceneNode:
     node = get_scene_node(scene_id, node_id, user, db)
@@ -403,7 +495,7 @@ def move_scene_node(
 async def upload_asset(
     project_id: str,
     file: UploadFile = File(...),
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("assets:write")),
     db: Session = Depends(get_db),
 ) -> Asset:
     project = get_owned_project(project_id, user, db)
@@ -443,7 +535,7 @@ async def upload_asset(
 @app.get("/api/v1/projects/{project_id}/assets", response_model=list[AssetRead])
 def list_assets(
     project_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("assets:read")),
     db: Session = Depends(get_db),
 ) -> list[Asset]:
     get_owned_project(project_id, user, db)
@@ -453,7 +545,7 @@ def list_assets(
 @app.get("/api/v1/assets/{asset_id}", response_model=AssetRead)
 def get_asset(
     asset_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("assets:read")),
     db: Session = Depends(get_db),
 ) -> Asset:
     asset = db.get(Asset, asset_id)
@@ -468,7 +560,7 @@ def get_asset(
 @app.get("/api/v1/assets/{asset_id}/content")
 def download_asset(
     asset_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("assets:read")),
     db: Session = Depends(get_db),
 ) -> FileResponse:
     asset = get_asset(asset_id, user, db)
@@ -481,7 +573,7 @@ def download_asset(
 @app.delete("/api/v1/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_asset(
     asset_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("assets:write")),
     db: Session = Depends(get_db),
 ) -> None:
     asset = get_asset(asset_id, user, db)
@@ -504,7 +596,7 @@ def create_import_job(
     project_id: str,
     payload: ImportCreate,
     background_tasks: BackgroundTasks,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("imports:write")),
     db: Session = Depends(get_db),
 ) -> ImportJob:
     project = get_owned_project(project_id, user, db)
@@ -532,7 +624,7 @@ def create_import_job(
 @app.get("/api/v1/imports/{import_id}", response_model=ImportJobRead)
 def get_import_job(
     import_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("imports:read")),
     db: Session = Depends(get_db),
 ) -> ImportJob:
     return _get_owned_import_job(import_id, user, db)
@@ -541,7 +633,7 @@ def get_import_job(
 @app.post("/api/v1/imports/{import_id}/cancel", response_model=ImportJobRead)
 def cancel_import_job(
     import_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("imports:write")),
     db: Session = Depends(get_db),
 ) -> ImportJob:
     job = _get_owned_import_job(import_id, user, db)
@@ -573,7 +665,7 @@ def create_export_job(
     project_id: str,
     payload: ExportCreate,
     background_tasks: BackgroundTasks,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("exports:write")),
     db: Session = Depends(get_db),
 ) -> ExportJob:
     project = get_owned_project(project_id, user, db)
@@ -600,7 +692,7 @@ def create_export_job(
 @app.get("/api/v1/exports/{export_id}", response_model=ExportJobRead)
 def get_export_job(
     export_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("exports:read")),
     db: Session = Depends(get_db),
 ) -> ExportJob:
     return _get_owned_export_job(export_id, user, db)
@@ -609,7 +701,7 @@ def get_export_job(
 @app.get("/api/v1/exports/{export_id}/download")
 def download_export(
     export_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("exports:read")),
     db: Session = Depends(get_db),
 ) -> FileResponse:
     job = _get_owned_export_job(export_id, user, db)
@@ -626,7 +718,7 @@ def download_export(
 @app.get("/api/v1/exports/{export_id}/preview")
 def export_preview(
     export_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("exports:read")),
     db: Session = Depends(get_db),
 ) -> FileResponse:
     job = _get_owned_export_job(export_id, user, db)
@@ -653,7 +745,7 @@ def create_ai_task(
     project_id: str,
     payload: AiTaskCreate,
     background_tasks: BackgroundTasks,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("ai:write")),
     db: Session = Depends(get_db),
 ) -> AiTask:
     project = get_owned_project(project_id, user, db)
@@ -682,7 +774,7 @@ def create_ai_task(
 @app.get("/api/v1/ai-tasks/{task_id}", response_model=AiTaskRead)
 def get_ai_task(
     task_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("ai:read")),
     db: Session = Depends(get_db),
 ) -> AiTask:
     return _get_owned_ai_task(task_id, user, db)
@@ -691,7 +783,7 @@ def get_ai_task(
 @app.get("/api/v1/projects/{project_id}/ai-tasks", response_model=AiTaskList)
 def list_ai_tasks(
     project_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("ai:read")),
     db: Session = Depends(get_db),
 ) -> AiTaskList:
     get_owned_project(project_id, user, db)
@@ -706,7 +798,7 @@ def list_ai_tasks(
 @app.post("/api/v1/ai-tasks/{task_id}/cancel", response_model=AiTaskRead)
 def cancel_ai_task(
     task_id: str,
-    user: LocalUser = Depends(get_current_user),
+    user: LocalUser = Depends(require_scope("ai:write")),
     db: Session = Depends(get_db),
 ) -> AiTask:
     task = _get_owned_ai_task(task_id, user, db)

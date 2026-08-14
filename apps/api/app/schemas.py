@@ -27,6 +27,32 @@ class ProfileRead(ORMModel):
     created_at: datetime
 
 
+class ApiKeyCreate(BaseModel):
+    name: str = Field(default="Agent Key", min_length=1, max_length=120)
+    scopes: list[str] = Field(default_factory=list)
+    expires_at: datetime | None = None
+
+
+class ApiKeyRead(ORMModel):
+    id: str
+    name: str
+    scopes: list[str]
+    created_at: datetime
+    expires_at: datetime | None
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+
+
+class ApiKeyCreated(BaseModel):
+    key: ApiKeyRead
+    api_key: str
+
+
+class ApiKeyList(BaseModel):
+    items: list[ApiKeyRead]
+    next_cursor: str | None = None
+
+
 class ProjectCreate(BaseModel):
     name: str = Field(default="Untitled Project", min_length=1, max_length=160)
     width: float = Field(default=1920, ge=1, le=4096)

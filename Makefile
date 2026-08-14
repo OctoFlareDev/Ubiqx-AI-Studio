@@ -2,7 +2,7 @@ PYTHON ?= python3
 PIP ?= $(PYTHON) -m pip
 API_APP_DIR := apps/api
 
-.PHONY: install install-api install-web dev-api dev-web test test-api test-e2e build
+.PHONY: install install-api install-web dev-api dev-web test test-api test-e2e contract build
 
 install: install-api install-web
 
@@ -22,6 +22,9 @@ test: test-api
 
 test-api:
 	$(PYTHON) -m pytest $(API_APP_DIR)/tests -q
+
+contract:
+	$(PYTHON) scripts/generate_contract.py
 
 test-e2e:
 	npm run test:e2e

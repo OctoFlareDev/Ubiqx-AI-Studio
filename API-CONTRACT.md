@@ -97,6 +97,12 @@ HTTP status mapping:
 - `GET /projects/{project_id}/ai-tasks` list project AI tasks.
 - `POST /ai-tasks/{task_id}/cancel` cancel AI task.
 
+### API Keys
+
+- `GET /api-keys` list the local user's API keys.
+- `POST /api-keys` create an API key with scopes; returns the plaintext key once.
+- `POST /api-keys/{key_id}/revoke` revoke an API key.
+
 ### System
 
 - `GET /health` liveness.
@@ -225,21 +231,33 @@ Terminal statuses:
 - `failed`
 - `cancelled`
 
+## Rate Limiting
+
+API routes under `/api/v1` are rate limited per credential (or per client
+address for unauthenticated requests) using a sliding window. When the limit is
+exceeded, the server returns `429` with the standard error envelope and code
+`rate_limited`. Limits are configurable via `UBIQX_RATE_LIMIT` and
+`UBIQX_RATE_LIMIT_WINDOW_SECONDS`.
+
 ## API Keys and Scopes
 
-Initial scopes:
+Scopes:
 
-- `projects:read`
-- `projects:write`
-- `assets:read`
-- `assets:write`
-- `scenes:read`
-- `scenes:write`
-- `imports:write`
-- `exports:write`
-- `ai:write`
+- `projects:read`, `projects:write`
+- `assets:read`, `assets:write`
+- `scenes:read`, `scenes:write`
+- `imports:read`, `imports:write`
+- `exports:read`, `exports:write`
+- `ai:read`, `ai:write`
+- `api_keys:read`, `api_keys:write`
 
-The API key creation endpoint is administrative and restricted to the local user.
+A key may hold the wildcard `*` scope, which grants every scope. The bootstrap
+endpoint returns a `*` key for the local studio. Scoped keys receive a `403`
+with error code `insufficient_scope` when they call a route outside their grant.
+
+The API key creation, listing, and revocation endpoints require
+`api_keys:write` (for mutation) or `api_keys:read` (for listing) and are
+restricted to the local user.
 
 ## Contract Governance
 
