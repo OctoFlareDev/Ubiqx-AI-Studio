@@ -6,8 +6,8 @@ Status: Ready for human checkpoint
 
 Harden the product for release: contract coverage, security review and fixes,
 performance smoke tests, structured logging and readiness, backup/restore, and
-visual-regression scaffolding. Detailed visual parity review is deferred to a
-vision model.
+visual-regression coverage. Detailed full-page parity review remains a human
+checkpoint.
 
 ## Work Items
 
@@ -17,7 +17,7 @@ vision model.
 - [x] Backup/restore (`ops.py` + `scripts/backup.py`) with round-trip and traversal tests.
 - [x] Performance smoke tests (list 500 nodes, export 300 nodes within budgets).
 - [x] Contract completeness test (documented resources present in OpenAPI).
-- [x] Visual regression scaffolding (`tests/e2e/visual.spec.ts`) — pixel comparison deferred to a vision model.
+- [x] Visual regression baselines for imported and selected CanvasKit states across Chromium, Firefox, and WebKit.
 - [x] Deployment runbook (`DEPLOYMENT.md`).
 - [x] Removed a redundant duplicate `openProject` that caused upload flakiness in E2E.
 

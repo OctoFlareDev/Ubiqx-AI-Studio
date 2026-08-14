@@ -12,9 +12,9 @@
 - Added `tests/e2e/visual.spec.ts` (visual capture scaffolding).
 - Wrote `SECURITY-REVIEW.md` and `DEPLOYMENT.md`; updated `SECURITY-AND-OPS.md`.
 - Removed a redundant duplicate `openProject` in `StudioWorkspace.vue` that caused intermittent E2E upload flakes.
-- Verified API tests, typecheck, and web build. Playwright execution was not
-  reproducible in the current checkout because Chromium is not installed;
-  CI installs it before running E2E.
+- Verified API tests, typecheck, web build, and the Playwright E2E suite across
+  Chromium, Firefox, and WebKit. Added committed CanvasKit baselines for the
+  imported and selected states.
 - Regenerated `packages/contracts/openapi.json`.
 
 ## Human checkpoint
