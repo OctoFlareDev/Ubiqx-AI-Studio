@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Callable
 
 from psd_tools import PSDImage
 from psd_tools.api.layers import Layer
@@ -177,10 +179,19 @@ def _effect_metadata(layer: Layer, warnings: list[dict]) -> dict | None:
 
 
 class PSDImportParser:
-    def __init__(self, asset_store: AssetStore | None = None, source_name: str = "design") -> None:
+    def __init__(
+        self,
+        asset_store: AssetStore | None = None,
+        source_name: str = "design",
+        progress_callback: Callable[[float], None] | None = None,
+    ) -> None:
         self.asset_store = asset_store or AssetStore()
         self.source_name = source_name
+        self.progress_callback = progress_callback
         self.warnings: list[dict] = []
+        self.created_storage_paths: set[str] = set()
+        self._layer_count = 0
+        self._processed_layers = 0
 
     def parse(self, path: Path | str) -> ParsedDocument:
         source_path = Path(path)
@@ -199,7 +210,9 @@ class PSDImportParser:
             opacity=1,
             transform={"x": 0, "y": 0, "width": float(psd.width), "height": float(psd.height), "rotation": 0, "scale_x": 1, "scale_y": 1},
         )
-        for order_index, layer in enumerate(psd):
+        self._layer_count = _count_layers(psd)
+        self._report_progress(0)
+        for layer in psd:
             child = self._convert_layer(layer)
             if child is not None:
                 root.children.append(child)
@@ -220,7 +233,13 @@ class PSDImportParser:
             height *= scale
         return ParsedDocument(width=width, height=height, root=root, warnings=self.warnings)
 
+    def _report_progress(self, progress: float) -> None:
+        if self.progress_callback is not None:
+            self.progress_callback(min(1, max(0, progress)))
+
     def _convert_layer(self, layer: Layer) -> ParsedNode | None:
+        self._processed_layers += 1
+        self._report_progress(self._processed_layers / max(1, self._layer_count))
         if layer.kind in {"background", "adjustment", "brightnesscontrast"}:
             self.warnings.append(
                 _warning(
@@ -286,11 +305,17 @@ class PSDImportParser:
             )
         buffer = io.BytesIO()
         image.save(buffer, format="PNG", optimize=True)
+        image_bytes = buffer.getvalue()
+        content_hash = hashlib.sha256(image_bytes).hexdigest()
+        destination = self.asset_store.root / content_hash[:2] / content_hash
+        was_new = not destination.exists()
         stored = self.asset_store.save_bytes(
-            buffer.getvalue(),
+            image_bytes,
             original_name=f"{self.source_name} / {getattr(layer, 'name', 'layer')}.png",
             media_type="image/png",
         )
+        if was_new:
+            self.created_storage_paths.add(stored["storage_path"])
         return ParsedAsset(
             content_hash=stored["content_hash"],
             media_type=stored["media_type"],
@@ -310,8 +335,26 @@ def _scale_parsed_node(node: ParsedNode, scale: float) -> None:
         _scale_parsed_node(child, scale)
 
 
+def _count_layers(layers: object) -> int:
+    total = 0
+    for layer in layers:  # type: ignore[union-attr]
+        total += 1
+        if layer.is_group():
+            total += _count_layers(layer)
+    return total
+
+
+def _cleanup_parser_assets(db: Session, parser: PSDImportParser | None) -> None:
+    if parser is None:
+        return
+    for storage_path in parser.created_storage_paths:
+        if db.scalar(select(Asset.id).where(Asset.storage_path == storage_path).limit(1)) is None:
+            Path(storage_path).unlink(missing_ok=True)
+
+
 def run_import_job(job_id: str) -> None:
     db = SessionLocal()
+    parser: PSDImportParser | None = None
     try:
         job = db.get(ImportJob, job_id)
         if job is None or job.status in TERMINAL_STATUSES:
@@ -337,8 +380,15 @@ def run_import_job(job_id: str) -> None:
         if project is None:
             raise ImportFailure("project_missing")
 
+        def report_progress(progress: float) -> None:
+            job.progress = min(0.55, 0.1 + progress * 0.45)
+            db.commit()
+
         if job.adapter == "psd":
-            parser = PSDImportParser(source_name=Path(source_asset.original_name).stem)
+            parser = PSDImportParser(
+                source_name=Path(source_asset.original_name).stem,
+                progress_callback=report_progress,
+            )
             parsed = parser.parse(Path(source_asset.storage_path))
         else:
             parsed = _raster_document(source_asset)
@@ -367,9 +417,11 @@ def run_import_job(job_id: str) -> None:
         logger.info("import_job_succeeded", extra={"job_id": job_id})
     except ImportFailure as exc:
         db.rollback()
+        _cleanup_parser_assets(db, parser)
         _mark_failed(db, job_id, str(exc))
     except Exception as exc:
         db.rollback()
+        _cleanup_parser_assets(db, parser)
         _mark_failed(db, job_id, f"import_failed: {type(exc).__name__}")
     finally:
         CANCELLATION_REQUESTS.discard(job_id)
