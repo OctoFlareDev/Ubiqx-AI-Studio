@@ -160,6 +160,10 @@ def _json_payload(value: object) -> str:
     return json.dumps(value, ensure_ascii=True, separators=(",", ":"), default=str)
 
 
+def _canonical_json_payload(value: object) -> bytes:
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":"), sort_keys=True, default=str).encode("utf-8")
+
+
 def _script_safe_json(value: object) -> str:
     return _json_payload(value).replace("</", "<\\/")
 
@@ -341,6 +345,7 @@ class HTML5ExportService:
         )
 
         manifest = self._build_manifest(package_dir, scene_data, referenced_assets, warnings)
+        self._set_manifest_integrity(manifest)
         (package_dir / "manifest.json").write_text(_json_payload(manifest), encoding="utf-8")
 
         preview_path = export_dir / "preview.html"
@@ -354,10 +359,20 @@ class HTML5ExportService:
         self._validate_package(package_path, manifest, scene_data)
 
         manifest["validation"]["passed"] = True
+        self._set_manifest_integrity(manifest)
         (package_dir / "manifest.json").write_text(_json_payload(manifest), encoding="utf-8")
         self._write_zip(package_dir, package_path)
         self._validate_package(package_path, manifest, scene_data)
         return package_path, export_dir, manifest, warnings
+
+    def _set_manifest_integrity(self, manifest: dict) -> None:
+        manifest.pop("manifest_integrity", None)
+        digest = hashlib.sha256(_canonical_json_payload(manifest)).hexdigest()
+        manifest["manifest_integrity"] = {
+            "algorithm": "sha256",
+            "canonicalization": "manifest JSON with manifest_integrity removed and keys sorted",
+            "sha256": digest,
+        }
 
     def _write_zip(self, package_dir: Path, package_path: Path) -> None:
         with zipfile.ZipFile(package_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -431,6 +446,14 @@ class HTML5ExportService:
             manifest_data = json.loads(manifest_bytes.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError, KeyError) as exc:
             raise ExportFailure("export_validation_failed") from exc
+
+        integrity = manifest_data.get("manifest_integrity")
+        if not isinstance(integrity, dict) or integrity.get("algorithm") != "sha256":
+            raise ExportFailure("export_validation_failed")
+        manifest_without_integrity = dict(manifest_data)
+        manifest_without_integrity.pop("manifest_integrity", None)
+        if hashlib.sha256(_canonical_json_payload(manifest_without_integrity)).hexdigest() != integrity.get("sha256"):
+            raise ExportFailure("export_validation_failed")
 
         if scene_data.get("scene", {}).get("id") != expected_scene_data.get("scene", {}).get("id"):
             raise ExportFailure("export_validation_failed")

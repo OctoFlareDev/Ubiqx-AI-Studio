@@ -93,6 +93,7 @@ def test_export_imported_scene_as_html5_package(
 
     manifest = job["manifest"]
     assert manifest["validation"]["passed"] is True
+    assert manifest["manifest_integrity"]["algorithm"] == "sha256"
     assert manifest["validation"]["node_count"] == 3
     assert manifest["validation"]["asset_count"] == 2
     assert "index.html" in manifest["files"]
