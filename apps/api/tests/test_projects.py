@@ -25,6 +25,10 @@ def test_project_crud(client: TestClient, auth_headers: dict[str, str]) -> None:
     assert archive_response.status_code == 200
     assert archive_response.json()["status"] == "archived"
 
+    archived_list = client.get("/api/v1/projects?status=archived", headers=auth_headers)
+    assert archived_list.status_code == 200
+    assert any(item["id"] == project_id for item in archived_list.json()["items"])
+
     restore_response = client.post(f"/api/v1/projects/{project_id}/restore", headers=auth_headers)
     assert restore_response.status_code == 200
     assert restore_response.json()["status"] == "active"

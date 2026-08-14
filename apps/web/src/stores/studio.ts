@@ -11,6 +11,7 @@ interface StudioState {
   booted: boolean
   profile: Profile | null
   projects: Project[]
+  archivedProjects: Project[]
   currentProjectId: string | null
   scene: Scene | null
   nodes: SceneNode[]
@@ -36,6 +37,7 @@ export const useStudioStore = defineStore('studio', {
     booted: false,
     profile: null,
     projects: [],
+    archivedProjects: [],
     currentProjectId: null,
     scene: null,
     nodes: [],
@@ -76,8 +78,9 @@ export const useStudioStore = defineStore('studio', {
       }
     },
     async loadProjects() {
-      const result = await api.listProjects()
-      this.projects = result.items
+      const [active, archived] = await Promise.all([api.listProjects('active'), api.listProjects('archived')])
+      this.projects = active.items
+      this.archivedProjects = archived.items
       this.error = null
     },
     async createProject(name: string) {
@@ -108,7 +111,7 @@ export const useStudioStore = defineStore('studio', {
       if (this.currentProjectId === projectId) this.currentProjectId = null
     },
     async restoreProject(projectId: string) {
-      const current = this.projects.find((item) => item.id === projectId)
+      const current = this.archivedProjects.find((item) => item.id === projectId)
       await api.restoreProject(projectId, current?.version)
       await this.loadProjects()
     },

@@ -116,7 +116,8 @@ export function hasSession(): boolean {
 
 export const api = {
   profile: () => request<Profile>('/auth/profile'),
-  listProjects: () => request<{ items: Project[]; next_cursor: string | null }>('/projects'),
+  listProjects: (status: 'active' | 'archived' = 'active') =>
+    request<{ items: Project[]; next_cursor: string | null }>(`/projects?status=${status}`),
   createProject: (payload: { name: string; width?: number; height?: number }) =>
     request<Project>('/projects', { method: 'POST', body: JSON.stringify(payload) }),
   updateProject: (projectId: string, payload: { name?: string }, version?: number) =>

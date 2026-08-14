@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Search, X } from 'lucide-vue-next'
+import { Archive, Plus, Search, X } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 
 import EmptyProjectState from '@/components/EmptyProjectState.vue'
@@ -10,11 +10,13 @@ const studio = useStudioStore()
 const creating = ref(false)
 const newProjectName = ref('')
 const query = ref('')
+const showArchived = ref(false)
 
+const visibleProjects = computed(() => (showArchived.value ? studio.archivedProjects : studio.projects))
 const filteredProjects = computed(() => {
   const term = query.value.trim().toLowerCase()
-  if (!term) return studio.projects
-  return studio.projects.filter((project) => project.name.toLowerCase().includes(term))
+  if (!term) return visibleProjects.value
+  return visibleProjects.value.filter((project) => project.name.toLowerCase().includes(term))
 })
 
 function startCreate() {
@@ -48,6 +50,10 @@ async function archiveProject(projectId: string) {
 async function deleteProject(projectId: string) {
   if (window.confirm('Delete this project?')) await studio.deleteProject(projectId)
 }
+
+async function restoreProject(projectId: string) {
+  await studio.restoreProject(projectId)
+}
 </script>
 
 <template>
@@ -60,6 +66,9 @@ async function deleteProject(projectId: string) {
       <button class="primary-button" type="button" @click="startCreate">
         <Plus :size="17" />
         New project
+      </button>
+      <button class="secondary-button" type="button" @click="showArchived = !showArchived">
+        {{ showArchived ? 'Active projects' : `Archived (${studio.archivedProjects.length})` }}
       </button>
     </header>
 
@@ -91,7 +100,13 @@ async function deleteProject(projectId: string) {
       <div v-for="index in 4" :key="index" class="project-skeleton" />
     </div>
 
-    <EmptyProjectState v-else-if="studio.projects.length === 0" @create="startCreate" />
+    <EmptyProjectState v-else-if="!showArchived && studio.projects.length === 0" @create="startCreate" />
+
+    <section v-else-if="showArchived && studio.archivedProjects.length === 0" class="no-results-state" aria-live="polite">
+      <Archive :size="24" />
+      <h2>No archived projects</h2>
+      <p>Archived projects will appear here so they can be restored.</p>
+    </section>
 
     <section v-else-if="filteredProjects.length === 0" class="no-results-state" aria-live="polite">
       <Search :size="24" />
@@ -108,10 +123,12 @@ async function deleteProject(projectId: string) {
         v-for="project in filteredProjects"
         :key="project.id"
         :project="project"
+        :archived="showArchived"
         @open="openProject"
         @rename="renameProject"
         @archive="archiveProject"
         @delete="deleteProject"
+        @restore="restoreProject"
       />
     </section>
   </div>

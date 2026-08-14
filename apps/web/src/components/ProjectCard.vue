@@ -13,12 +13,14 @@ import type { Project } from '@/types'
 
 const props = defineProps<{
   project: Project
+  archived?: boolean
 }>()
 
 const emit = defineEmits<{
   open: [projectId: string]
   rename: [projectId: string, name: string]
   archive: [projectId: string]
+  restore: [projectId: string]
   delete: [projectId: string]
 }>()
 
@@ -83,8 +85,11 @@ function formattedDate(value: string): string {
       <button class="icon-button" type="button" aria-label="Rename project" title="Rename" @click="startEdit">
         <Pencil :size="15" />
       </button>
-      <button class="icon-button" type="button" aria-label="Archive project" title="Archive" @click="emit('archive', project.id)">
+      <button v-if="!archived" class="icon-button" type="button" aria-label="Archive project" title="Archive" @click="emit('archive', project.id)">
         <Archive :size="15" />
+      </button>
+      <button v-else class="icon-button" type="button" aria-label="Restore project" title="Restore" @click="emit('restore', project.id)">
+        <FolderOpen :size="15" />
       </button>
       <button class="icon-button danger" type="button" aria-label="Delete project" title="Delete" @click="emit('delete', project.id)">
         <Trash2 :size="15" />

@@ -573,15 +573,18 @@ def revoke_user_api_key(
 
 @app.get("/api/v1/projects", response_model=ProjectList)
 def list_projects(
+    status_filter: str = Query(default="active", alias="status"),
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = Query(default=None),
     user: LocalUser = Depends(require_scope("projects:read")),
     db: Session = Depends(get_db),
 ) -> ProjectList:
+    if status_filter not in {"active", "archived"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_project_status")
     offset = _cursor_offset(cursor)
     projects = db.scalars(
         select(Project)
-        .where(Project.user_id == user.id, Project.status == "active")
+        .where(Project.user_id == user.id, Project.status == status_filter)
         .order_by(Project.updated_at.desc())
         .offset(offset)
         .limit(limit + 1)
