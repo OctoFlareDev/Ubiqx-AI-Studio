@@ -3,6 +3,10 @@ import { defineStore } from 'pinia'
 import { api, ensureSession } from '@/services/api'
 import type { AiTask, Asset, ExportJob, ImportJob, Profile, Project, Scene, SceneNode } from '@/types'
 
+const POLL_INTERVAL_MS = 350
+const POLL_TIMEOUT_MS = 5 * 60 * 1000
+const MAX_CONSECUTIVE_POLL_ERRORS = 3
+
 interface StudioState {
   booted: boolean
   profile: Profile | null
@@ -199,12 +203,14 @@ export const useStudioStore = defineStore('studio', {
       }
     },
     async pollImport(importId: string): Promise<ImportJob> {
-      while (true) {
-        const job = await api.getImport(importId)
-        this.activeImportJob = job
-        if (['succeeded', 'failed', 'cancelled'].includes(job.status)) return job
-        await new Promise((resolve) => window.setTimeout(resolve, 350))
-      }
+      return this.pollTask(
+        () => api.getImport(importId),
+        (job) => {
+          this.activeImportJob = job
+          return ['succeeded', 'failed', 'cancelled'].includes(job.status)
+        },
+        'Import',
+      )
     },
     async cancelImport() {
       if (!this.activeImportJob || ['succeeded', 'failed', 'cancelled'].includes(this.activeImportJob.status)) return
@@ -229,12 +235,14 @@ export const useStudioStore = defineStore('studio', {
       }
     },
     async pollExport(exportId: string): Promise<ExportJob> {
-      while (true) {
-        const job = await api.getExport(exportId)
-        this.activeExportJob = job
-        if (['succeeded', 'failed', 'cancelled'].includes(job.status)) return job
-        await new Promise((resolve) => window.setTimeout(resolve, 350))
-      }
+      return this.pollTask(
+        () => api.getExport(exportId),
+        (job) => {
+          this.activeExportJob = job
+          return ['succeeded', 'failed', 'cancelled'].includes(job.status)
+        },
+        'Export',
+      )
     },
     async loadExportPreview(exportId: string) {
       const html = await api.getExportPreview(exportId)
@@ -272,12 +280,14 @@ export const useStudioStore = defineStore('studio', {
       }
     },
     async pollAiTask(taskId: string): Promise<AiTask> {
-      while (true) {
-        const task = await api.getAiTask(taskId)
-        this.activeAiTask = task
-        if (['succeeded', 'failed', 'cancelled'].includes(task.status)) return task
-        await new Promise((resolve) => window.setTimeout(resolve, 350))
-      }
+      return this.pollTask(
+        () => api.getAiTask(taskId),
+        (task) => {
+          this.activeAiTask = task
+          return ['succeeded', 'failed', 'cancelled'].includes(task.status)
+        },
+        'AI task',
+      )
     },
     async cancelAiTask() {
       if (!this.activeAiTask || ['succeeded', 'failed', 'cancelled'].includes(this.activeAiTask.status)) return
@@ -388,6 +398,29 @@ export const useStudioStore = defineStore('studio', {
       this.activeExportJob = null
       this.activeAiTask = null
       this.closeExportPreview()
+    },
+
+    async pollTask<T>(
+      fetcher: () => Promise<T>,
+      observe: (value: T) => boolean,
+      label: string,
+    ): Promise<T> {
+      const deadline = Date.now() + POLL_TIMEOUT_MS
+      let consecutiveErrors = 0
+      while (Date.now() < deadline) {
+        try {
+          const value = await fetcher()
+          consecutiveErrors = 0
+          if (observe(value)) return value
+        } catch (error) {
+          consecutiveErrors += 1
+          if (consecutiveErrors >= MAX_CONSECUTIVE_POLL_ERRORS) throw error
+        }
+        const remaining = deadline - Date.now()
+        if (remaining <= 0) break
+        await new Promise((resolve) => window.setTimeout(resolve, Math.min(POLL_INTERVAL_MS, remaining)))
+      }
+      throw new Error(`${label} polling timed out. Retry the operation or check the job status.`)
     },
   },
 })
