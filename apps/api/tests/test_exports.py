@@ -190,5 +190,7 @@ def test_export_derives_viewport_from_content_bounds(
     with zipfile.ZipFile(io.BytesIO(download.content)) as archive:
         scene_json = json.loads(archive.read("scene.json").decode("utf-8"))
     nodes_by_name = {node["name"]: node for node in scene_json["nodes"]}
-    assert nodes_by_name["B"]["transform"]["x"] == pytest.approx(24)
-    assert nodes_by_name["B"]["transform"]["y"] == pytest.approx(24)
+    assert nodes_by_name["B"]["transform"]["x"] == pytest.approx(-200)
+    assert nodes_by_name["B"]["transform"]["y"] == pytest.approx(-300)
+    assert scene["offset"]["x"] == pytest.approx(224)
+    assert scene["offset"]["y"] == pytest.approx(324)

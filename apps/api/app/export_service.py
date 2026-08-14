@@ -50,6 +50,44 @@ def _extension_for(media_type: str) -> str | None:
 
 EXPORT_PADDING = 24
 
+Matrix = tuple[float, float, float, float, float, float]
+
+
+def _matrix_from_transform(transform: dict) -> Matrix:
+    import math
+
+    rotation = math.radians(float(transform.get("rotation", 0) or 0))
+    cosine = math.cos(rotation)
+    sine = math.sin(rotation)
+    scale_x = float(transform.get("scale_x", 1) or 1)
+    scale_y = float(transform.get("scale_y", 1) or 1)
+    return (
+        cosine * scale_x,
+        sine * scale_x,
+        -sine * scale_y,
+        cosine * scale_y,
+        float(transform.get("x", 0) or 0),
+        float(transform.get("y", 0) or 0),
+    )
+
+
+def _multiply_matrix(left: Matrix, right: Matrix) -> Matrix:
+    return (
+        left[0] * right[0] + left[2] * right[1],
+        left[1] * right[0] + left[3] * right[1],
+        left[0] * right[2] + left[2] * right[3],
+        left[1] * right[2] + left[3] * right[3],
+        left[0] * right[4] + left[2] * right[5] + left[4],
+        left[1] * right[4] + left[3] * right[5] + left[5],
+    )
+
+
+def _apply_matrix(matrix: Matrix, x: float, y: float) -> tuple[float, float]:
+    return (
+        matrix[0] * x + matrix[2] * y + matrix[4],
+        matrix[1] * x + matrix[3] * y + matrix[5],
+    )
+
 
 def _content_bounds(
     nodes: list[SceneNode],
@@ -74,29 +112,31 @@ def _content_bounds(
     max_x = float("-inf")
     max_y = float("-inf")
 
-    def walk(parent_id: str | None, parent_x: float, parent_y: float, parent_visible: bool) -> None:
+    def walk(parent_id: str | None, parent_matrix: Matrix, parent_visible: bool) -> None:
         nonlocal min_x, min_y, max_x, max_y
         for node in children.get(parent_id, []):
             transform = node.transform or {}
-            x = parent_x + float(transform.get("x", 0) or 0)
-            y = parent_y + float(transform.get("y", 0) or 0)
             width = float(transform.get("width", 0) or 0)
             height = float(transform.get("height", 0) or 0)
+            matrix = _multiply_matrix(parent_matrix, _matrix_from_transform(transform))
             visible = parent_visible and node.visible is not False
             if visible:
-                min_x = min(min_x, x)
-                min_y = min(min_y, y)
-                max_x = max(max_x, x + width)
-                max_y = max(max_y, y + height)
-            walk(node.id, x, y, visible)
+                for x, y in (
+                    _apply_matrix(matrix, 0, 0),
+                    _apply_matrix(matrix, width, 0),
+                    _apply_matrix(matrix, width, height),
+                    _apply_matrix(matrix, 0, height),
+                ):
+                    min_x = min(min_x, x)
+                    min_y = min(min_y, y)
+                    max_x = max(max_x, x)
+                    max_y = max(max_y, y)
+            walk(node.id, matrix, visible)
 
-    root_x = 0.0
-    root_y = 0.0
+    root_matrix: Matrix = (1, 0, 0, 1, 0, 0)
     if root_node_id and root_node_id in by_id:
-        root_transform = by_id[root_node_id].transform or {}
-        root_x = float(root_transform.get("x", 0) or 0)
-        root_y = float(root_transform.get("y", 0) or 0)
-    walk(root_node_id, root_x, root_y, True)
+        root_matrix = _matrix_from_transform(by_id[root_node_id].transform or {})
+    walk(root_node_id, root_matrix, True)
 
     if min_x == float("inf"):
         return None
@@ -222,6 +262,7 @@ class HTML5ExportService:
                 "id": scene.id,
                 "width": view_width,
                 "height": view_height,
+                "offset": {"x": shift_x, "y": shift_y},
                 "metadata": scene_metadata,
             },
             "root_node_id": scene.root_node_id,
@@ -269,9 +310,6 @@ class HTML5ExportService:
                 )
 
             transform = dict(node.transform or {})
-            if node.parent_id == scene.root_node_id or node.parent_id is None:
-                transform["x"] = float(transform.get("x", 0) or 0) + shift_x
-                transform["y"] = float(transform.get("y", 0) or 0) + shift_y
 
             scene_data["nodes"].append(
                 {
@@ -405,7 +443,7 @@ class HTML5ExportService:
     body {{ display: grid; place-items: start center; padding: 24px; overflow: auto; }}
     .viewport {{ position: relative; overflow: hidden; box-shadow: 0 14px 36px rgb(38 52 67 / 18%); }}
     .stage {{ position: absolute; left: 0; top: 0; transform-origin: top left; background: #fff; }}
-    .node {{ position: absolute; min-width: 0; min-height: 0; }}
+    .node {{ position: absolute; min-width: 0; min-height: 0; transform-origin: top left; }}
     .node.image, .node.shape, .node.layer {{ overflow: hidden; }}
     .node.group {{ overflow: visible; }}
     .node img {{ display: block; width: 100%; height: 100%; object-fit: fill; }}
@@ -425,6 +463,8 @@ class HTML5ExportService:
       const nodes = data.nodes || [];
       stage.style.width = `${{data.scene.width}}px`;
       stage.style.height = `${{data.scene.height}}px`;
+      stage.style.left = `${{data.scene.offset?.x || 0}}px`;
+      stage.style.top = `${{data.scene.offset?.y || 0}}px`;
 
       const root = {{ id: data.root_node_id }};
       const childrenByParent = new Map();
