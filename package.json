@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev:web": "npm --workspace @ubiqx/web run dev",
+    "generate:web-client": "npm --workspace @ubiqx/web run generate:client",
     "build:web": "npm --workspace @ubiqx/web run build",
     "preview:web": "npm --workspace @ubiqx/web run preview",
     "test:api": "python3 -m pytest apps/api/tests -q",

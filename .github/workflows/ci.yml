@@ -36,6 +36,11 @@ jobs:
           python scripts/generate_contract.py
           git diff --exit-code -- packages/contracts/openapi.json
 
+      - name: Verify generated web client is current
+        run: |
+          npm run generate:web-client
+          git diff --exit-code -- apps/web/src/generated/api.d.ts
+
       - name: Check Python dependency consistency
         run: python -m pip check
 
