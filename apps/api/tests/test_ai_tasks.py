@@ -7,7 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from app.ai_service import AiTaskFailure, LocalImageProvider
+from app.ai_service import AiTaskFailure, LocalImageProvider, run_ai_task
+from app.db import SessionLocal
+from app.models import AiTask
 
 
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -181,6 +183,50 @@ def test_cancel_queued_ai_task(
 
     get = client.get(f"/api/v1/ai-tasks/{task_id}", headers=auth_headers)
     assert get.json()["status"] == "cancelled"
+
+
+def test_running_cancellation_is_persisted_for_other_workers(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.main.run_ai_task", lambda _task_id: None)
+    project_id = _create_project(client, auth_headers)
+    input_asset_id = _upload_png(
+        client,
+        auth_headers,
+        project_id,
+        Image.new("RGBA", (2, 2), (10, 20, 30, 255)),
+    )
+    response = client.post(
+        f"/api/v1/projects/{project_id}/ai-tasks",
+        headers=auth_headers,
+        json={
+            "operation": "upscale",
+            "provider": "local",
+            "input_asset_id": input_asset_id,
+            "options": {"scale": 2},
+        },
+    )
+    task_id = response.json()["id"]
+    db = SessionLocal()
+    try:
+        task = db.get(AiTask, task_id)
+        assert task is not None
+        task.status = "running"
+        db.commit()
+    finally:
+        db.close()
+
+    cancel = client.post(f"/api/v1/ai-tasks/{task_id}/cancel", headers=auth_headers)
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "running"
+    assert cancel.json()["cancel_requested"] is True
+
+    run_ai_task(task_id)
+    completed = client.get(f"/api/v1/ai-tasks/{task_id}", headers=auth_headers)
+    assert completed.json()["status"] == "cancelled"
+    assert completed.json()["cancel_requested"] is True
 
 
 def test_ai_task_creation_enforces_concurrency_limit(

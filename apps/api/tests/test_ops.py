@@ -99,4 +99,4 @@ def test_schema_migration_ledger_is_initialized() -> None:
     init_db()
     with engine.connect() as connection:
         version = connection.execute(text("SELECT MAX(version) FROM schema_migrations")).scalar_one()
-    assert version == 1
+    assert version == 2

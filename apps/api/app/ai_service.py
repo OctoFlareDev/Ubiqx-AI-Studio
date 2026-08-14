@@ -67,6 +67,12 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _cancel_requested(db: Session, task_id: str) -> bool:
+    if task_id in CANCELLATION_REQUESTS:
+        return True
+    return bool(db.scalar(select(AiTask.cancel_requested).where(AiTask.id == task_id)))
+
+
 def _safe_error(exc: AiTaskFailure) -> str:
     return exc.code
 
@@ -324,7 +330,7 @@ def run_ai_task(task_id: str) -> None:
         if task is None or task.status in TERMINAL_STATUSES:
             return
         logger.info("ai_task_started", extra={"task_id": task_id})
-        if task_id in CANCELLATION_REQUESTS:
+        if _cancel_requested(db, task_id):
             _mark_cancelled(db, task)
             return
 
@@ -354,7 +360,7 @@ def run_ai_task(task_id: str) -> None:
             if job_timed_out(task.started_at, task.created_at):
                 _mark_failed(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at, error="job_timeout")
                 return
-            if task_id in CANCELLATION_REQUESTS:
+            if _cancel_requested(db, task_id):
                 _mark_cancelled(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at)
                 return
             attempts += 1
@@ -364,12 +370,12 @@ def run_ai_task(task_id: str) -> None:
                         operation=task.operation,
                         image=image,
                         options=task.options if isinstance(task.options, dict) else {},
-                        cancel_check=lambda: task_id in CANCELLATION_REQUESTS,
+                        cancel_check=lambda: _cancel_requested(db, task_id),
                     )
                 )
             except AiTaskFailure as exc:
                 _record_failure(db, task, input_asset, attempts, exc)
-                if task_id in CANCELLATION_REQUESTS or exc.code == "cancelled":
+                if _cancel_requested(db, task_id) or exc.code == "cancelled":
                     _mark_cancelled(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at)
                     return
                 if not exc.retryable or attempts >= MAX_ATTEMPTS:
@@ -380,7 +386,7 @@ def run_ai_task(task_id: str) -> None:
             except Exception as exc:
                 failure = AiTaskFailure("provider_failed", "provider_failed", retryable=True)
                 _record_failure(db, task, input_asset, attempts, failure)
-                if task_id in CANCELLATION_REQUESTS:
+                if _cancel_requested(db, task_id):
                     _mark_cancelled(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at)
                     return
                 if attempts >= MAX_ATTEMPTS:
@@ -393,7 +399,7 @@ def run_ai_task(task_id: str) -> None:
                 _mark_failed(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at, error="job_timeout")
                 return
 
-            if task_id in CANCELLATION_REQUESTS:
+            if _cancel_requested(db, task_id):
                 _mark_cancelled(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at)
                 return
 
@@ -466,6 +472,7 @@ def _mark_cancelled(
     started_at: datetime | None = None,
 ) -> None:
     task.status = "cancelled"
+    task.cancel_requested = True
     task.finished_at = _now()
     logger.info("ai_task_cancelled", extra={"task_id": task.id})
     if input_asset is not None and started_at is not None:

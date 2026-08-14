@@ -63,6 +63,10 @@
       },
       "AiTaskRead": {
         "properties": {
+          "cancel_requested": {
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -174,6 +178,7 @@
           "options",
           "status",
           "progress",
+          "cancel_requested",
           "retry_count",
           "last_error",
           "usage",

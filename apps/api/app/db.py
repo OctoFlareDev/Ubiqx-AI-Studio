@@ -22,7 +22,7 @@ engine = create_engine(settings.resolved_database_url, connect_args=connect_args
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _apply_schema_migrations() -> None:
@@ -43,15 +43,24 @@ def _apply_schema_migrations() -> None:
 
         columns = {
             table: {column["name"] for column in sqlalchemy_inspect(connection).get_columns(table)}
-            for table in ("projects", "scenes", "scene_nodes")
+            for table in ("projects", "scenes", "scene_nodes", "ai_tasks")
         }
-        for table in ("projects", "scenes", "scene_nodes"):
-            if "version" not in columns[table]:
-                connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
-        connection.exec_driver_sql(
-            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, CURRENT_TIMESTAMP)",
-            (SCHEMA_VERSION,),
-        )
+        if current < 1:
+            for table in ("projects", "scenes", "scene_nodes"):
+                if "version" not in columns[table]:
+                    connection.exec_driver_sql(f"ALTER TABLE {table} ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+            connection.exec_driver_sql(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, CURRENT_TIMESTAMP)",
+                (1,),
+            )
+            current = 1
+        if current < 2:
+            if "cancel_requested" not in columns["ai_tasks"]:
+                connection.exec_driver_sql("ALTER TABLE ai_tasks ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT 0")
+            connection.exec_driver_sql(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, CURRENT_TIMESTAMP)",
+                (2,),
+            )
 
 
 def init_db() -> None:

@@ -573,6 +573,8 @@ export interface components {
         };
         /** AiTaskRead */
         AiTaskRead: {
+            /** Cancel Requested */
+            cancel_requested: boolean;
             /**
              * Created At
              * Format: date-time

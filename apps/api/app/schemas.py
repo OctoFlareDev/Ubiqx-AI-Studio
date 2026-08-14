@@ -271,6 +271,7 @@ class AiTaskRead(ORMModel):
     options: dict[str, Any]
     status: Literal["queued", "running", "succeeded", "failed", "cancelled"]
     progress: float
+    cancel_requested: bool
     retry_count: int
     last_error: str | None
     usage: dict[str, Any]

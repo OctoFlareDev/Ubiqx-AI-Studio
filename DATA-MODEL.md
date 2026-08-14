@@ -220,6 +220,7 @@ Fields:
 - `options`
 - `status`: `queued`, `running`, `succeeded`, `failed`, `cancelled`
 - `progress`
+- `cancel_requested`
 - `retry_count`
 - `last_error`
 - `usage`
@@ -231,6 +232,7 @@ Invariants:
 
 - `retry_count` never exceeds the configured maximum.
 - Cancelled tasks are never retried.
+- `cancel_requested` is persisted so a different worker can observe a running-task cancellation.
 - `last_error` must not contain provider credentials or user secrets.
 
 ## ProjectRevision

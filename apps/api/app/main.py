@@ -1398,6 +1398,7 @@ def cancel_ai_task(
         db.refresh(task)
         return task
     if task.status == "running":
+        task.cancel_requested = True
         AI_CANCELLATION_REQUESTS.add(task.id)
         db.commit()
         db.refresh(task)
