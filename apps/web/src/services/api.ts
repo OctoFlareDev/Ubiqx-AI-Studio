@@ -127,6 +127,20 @@ export const api = {
     request<void>(`/projects/${projectId}`, { method: 'DELETE' }),
   getScene: (projectId: string) => request<Scene>(`/projects/${projectId}/scene`),
   listNodes: (sceneId: string) => request<SceneNode[]>(`/scenes/${sceneId}/nodes`),
+  createNode: (
+    projectId: string,
+    payload: {
+      parent_id?: string | null
+      type: 'image' | 'group' | 'layer' | 'text' | 'shape'
+      name: string
+      asset_id?: string | null
+      transform?: Record<string, number>
+      opacity?: number
+      text_properties?: Record<string, unknown> | null
+      style_properties?: Record<string, unknown> | null
+      effect_metadata?: Record<string, unknown> | null
+    },
+  ) => request<SceneNode>(`/projects/${projectId}/scene/nodes`, { method: 'POST', body: JSON.stringify(payload) }),
   updateNode: (
     sceneId: string,
     nodeId: string,
@@ -136,6 +150,10 @@ export const api = {
       locked?: boolean
       opacity?: number
       transform?: Record<string, number>
+      asset_id?: string | null
+      text_properties?: Record<string, unknown> | null
+      style_properties?: Record<string, unknown> | null
+      effect_metadata?: Record<string, unknown> | null
     },
   ) => request<SceneNode>(`/scenes/${sceneId}/nodes/${nodeId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   listAssets: (projectId: string) => request<Asset[]>(`/projects/${projectId}/assets`),

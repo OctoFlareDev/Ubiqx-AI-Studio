@@ -131,6 +131,44 @@ export const useStudioStore = defineStore('studio', {
     async loadAssets(projectId: string) {
       this.assets = await api.listAssets(projectId)
     },
+    async addAssetToCanvas(assetId: string) {
+      if (!this.currentProjectId || !this.scene) return null
+      const asset = this.assets.find((item) => item.id === assetId)
+      if (!asset) return null
+
+      const maxWidth = Math.max(160, this.scene.width * 0.6)
+      const maxHeight = Math.max(120, this.scene.height * 0.6)
+      const sourceWidth = asset.width ?? 320
+      const sourceHeight = asset.height ?? 180
+      const scale = Math.min(1, maxWidth / sourceWidth, maxHeight / sourceHeight)
+      const width = Math.max(1, Math.round(sourceWidth * scale))
+      const height = Math.max(1, Math.round(sourceHeight * scale))
+      const placementIndex = this.nodes.filter((node) => node.type !== 'root').length
+      const x = Math.max(0, Math.round((this.scene.width - width) / 2 + (placementIndex % 5) * 24))
+      const y = Math.max(0, Math.round((this.scene.height - height) / 2 + (placementIndex % 5) * 24))
+
+      this.saving = true
+      this.error = null
+      try {
+        const node = await api.createNode(this.currentProjectId, {
+          parent_id: this.scene.root_node_id,
+          type: 'image',
+          name: asset.original_name.replace(/\.[^.]+$/, '') || 'Image',
+          asset_id: asset.id,
+          transform: { x, y, width, height, rotation: 0, scale_x: 1, scale_y: 1 },
+        })
+        this.nodes.push(node)
+        this.selectedNodeId = node.id
+        this.past = []
+        this.future = []
+        return node
+      } catch (error) {
+        this.error = toMessage(error)
+        throw error
+      } finally {
+        this.saving = false
+      }
+    },
     async uploadAsset(projectId: string, file: File) {
       const asset = await api.uploadAsset(projectId, file)
       this.assets.unshift(asset)

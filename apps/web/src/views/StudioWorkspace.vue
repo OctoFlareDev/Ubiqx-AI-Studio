@@ -121,6 +121,12 @@ async function runAiTask(operation: 'upscale' | 'remove_background') {
   await studio.runAiTask(project.value.id, selectedAsset.value.id, operation)
 }
 
+async function addSelectedAssetToCanvas() {
+  if (!selectedAsset.value) return
+  const node = await studio.addAssetToCanvas(selectedAsset.value.id)
+  if (node) selectedAssetId.value = null
+}
+
 function cancelAiTask() {
   void studio.cancelAiTask()
 }
@@ -459,6 +465,10 @@ function formatBytes(value: number): string {
               Remove background
             </button>
           </div>
+          <button class="primary-button compact-action" type="button" @click="addSelectedAssetToCanvas">
+            <Plus :size="15" />
+            Add to canvas
+          </button>
           <div v-if="studio.activeAiTask && studio.activeAiTask.input_asset_id === selectedAsset.id" class="ai-task-status">
             <span>{{ studio.aiProcessing ? 'Processing' : studio.activeAiTask.status }}</span>
             <span v-if="studio.activeAiTask.status === 'running' || studio.activeAiTask.status === 'queued'">
