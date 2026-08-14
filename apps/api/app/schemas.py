@@ -236,7 +236,7 @@ class ExportJobRead(ORMModel):
 
 class AiTaskCreate(BaseModel):
     operation: Literal["upscale", "remove_background"]
-    provider: Literal["local", "openai"] = "local"
+    provider: Literal["local"] = "local"
     input_asset_id: str
     options: dict[str, Any] = Field(default_factory=dict)
 

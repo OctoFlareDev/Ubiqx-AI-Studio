@@ -208,3 +208,28 @@ def test_unsupported_ai_input_fails_cleanly(
     assert task["status"] == "failed"
     assert task["retry_count"] == 0
     assert task["last_error"] == "unsupported_ai_input_type"
+
+
+def test_unregistered_ai_provider_is_rejected_at_creation(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    input_asset_id = _upload_png(
+        client,
+        auth_headers,
+        project_id,
+        Image.new("RGBA", (2, 2), (10, 20, 30, 255)),
+    )
+    response = client.post(
+        f"/api/v1/projects/{project_id}/ai-tasks",
+        headers=auth_headers,
+        json={
+            "operation": "upscale",
+            "provider": "openai",
+            "input_asset_id": input_asset_id,
+            "options": {},
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "validation_error"
