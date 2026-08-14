@@ -313,7 +313,12 @@ function formatBytes(value: number): string {
               class="layer-row"
               :class="{ selected: studio.selectedNodeId === row.node.id }"
               :style="{ paddingLeft: `${10 + row.depth * 14}px` }"
+              role="button"
+              tabindex="0"
+              :aria-label="`Select layer ${row.node.name}`"
               @click="selectLayer(row.node)"
+              @keydown.enter="selectLayer(row.node)"
+              @keydown.space.prevent="selectLayer(row.node)"
             >
               <button
                 class="icon-button layer-toggle"

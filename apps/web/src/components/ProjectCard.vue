@@ -52,7 +52,15 @@ function formattedDate(value: string): string {
 </script>
 
 <template>
-  <article class="project-card" tabindex="0" @click="emit('open', project.id)" @keydown.enter="emit('open', project.id)">
+  <article
+    class="project-card"
+    role="button"
+    tabindex="0"
+    :aria-label="`Open project ${project.name}`"
+    @click="emit('open', project.id)"
+    @keydown.enter="emit('open', project.id)"
+    @keydown.space.prevent="emit('open', project.id)"
+  >
     <div class="project-thumb" aria-hidden="true">
       <FolderOpen :size="30" />
     </div>
@@ -84,4 +92,3 @@ function formattedDate(value: string): string {
     </div>
   </article>
 </template>
-
