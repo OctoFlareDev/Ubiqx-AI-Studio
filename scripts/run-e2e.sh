@@ -6,6 +6,12 @@ API_DIR="$ROOT_DIR/apps/api"
 PYTHON_BIN="${PYTHON:-python3}"
 API_PORT="${API_PORT:-8000}"
 WEB_PORT="${WEB_PORT:-5173}"
+test_data_dir=""
+
+if [[ -z "${UBIQX_DATA_DIR:-}" ]]; then
+  test_data_dir="$(mktemp -d -t ubiqx-e2e-data)"
+  export UBIQX_DATA_DIR="$test_data_dir"
+fi
 
 api_log="$(mktemp -t ubiqx-api)"
 web_log="$(mktemp -t ubiqx-web)"
@@ -18,6 +24,9 @@ cleanup() {
   fi
   if [[ -n "$api_pid" ]]; then
     kill "$api_pid" 2>/dev/null || true
+  fi
+  if [[ -n "$test_data_dir" ]]; then
+    rm -rf "$test_data_dir"
   fi
 }
 trap cleanup EXIT
