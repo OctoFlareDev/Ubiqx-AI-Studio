@@ -223,6 +223,12 @@ def _validate_scene_parent(
         current_id = nodes.get(current_id)
 
 
+def _ensure_mutable_scene_node(db: Session, scene_id: str, node: SceneNode) -> None:
+    scene = db.get(Scene, scene_id)
+    if scene is not None and scene.root_node_id == node.id:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="root_node_immutable")
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "ubiqx-api"}
@@ -528,6 +534,7 @@ def update_scene_node(
     db: Session = Depends(get_db),
 ) -> SceneNode:
     node = get_scene_node(scene_id, node_id, user, db)
+    _ensure_mutable_scene_node(db, scene_id, node)
     if payload.name is not None:
         node.name = payload.name.strip()
     if payload.visible is not None:
@@ -552,6 +559,7 @@ def delete_scene_node(
     db: Session = Depends(get_db),
 ) -> None:
     node = get_scene_node(scene_id, node_id, user, db)
+    _ensure_mutable_scene_node(db, scene_id, node)
     db.delete(node)
     db.commit()
 
@@ -565,6 +573,7 @@ def move_scene_node(
     db: Session = Depends(get_db),
 ) -> SceneNode:
     node = get_scene_node(scene_id, node_id, user, db)
+    _ensure_mutable_scene_node(db, scene_id, node)
     if payload.parent_id is not None:
         _validate_scene_parent(db, scene_id, payload.parent_id, node_id=node.id)
         node.parent_id = payload.parent_id

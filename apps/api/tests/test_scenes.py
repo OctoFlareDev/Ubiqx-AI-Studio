@@ -116,3 +116,44 @@ def test_scene_node_parent_invariants_are_enforced(
         json={"parent_id": other_scene["root_node_id"]},
     )
     assert cross_scene.status_code == 400
+
+
+def test_scene_root_cannot_be_mutated_or_deleted(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project = client.post(
+        "/api/v1/projects",
+        headers=auth_headers,
+        json={"name": "Immutable Root"},
+    ).json()
+    scene = client.get(f"/api/v1/projects/{project['id']}/scene", headers=auth_headers).json()
+    root_id = scene["root_node_id"]
+
+    update = client.patch(
+        f"/api/v1/scenes/{scene['id']}/nodes/{root_id}",
+        headers=auth_headers,
+        json={"name": "Changed Root"},
+    )
+    assert update.status_code == 409
+    assert update.json()["error"]["code"] == "root_node_immutable"
+
+    move = client.post(
+        f"/api/v1/scenes/{scene['id']}/nodes/{root_id}/move",
+        headers=auth_headers,
+        json={"order_index": 10},
+    )
+    assert move.status_code == 409
+
+    delete = client.delete(
+        f"/api/v1/scenes/{scene['id']}/nodes/{root_id}",
+        headers=auth_headers,
+    )
+    assert delete.status_code == 409
+
+    root = client.get(
+        f"/api/v1/scenes/{scene['id']}/nodes/{root_id}",
+        headers=auth_headers,
+    )
+    assert root.status_code == 200
+    assert root.json()["name"] == "Root"
