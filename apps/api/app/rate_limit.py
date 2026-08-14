@@ -25,10 +25,19 @@ class SlidingWindowRateLimiter:
         self.window_seconds = window_seconds
         self._hits: dict[str, deque[float]] = {}
         self._lock = threading.Lock()
+        self._calls_since_cleanup = 0
 
     def allow(self, key: str) -> bool:
         now = time.monotonic()
         with self._lock:
+            self._calls_since_cleanup += 1
+            if self._calls_since_cleanup >= 64:
+                for stored_key, stored_queue in list(self._hits.items()):
+                    while stored_queue and now - stored_queue[0] >= self.window_seconds:
+                        stored_queue.popleft()
+                    if not stored_queue:
+                        self._hits.pop(stored_key, None)
+                self._calls_since_cleanup = 0
             queue = self._hits.get(key)
             if queue is None:
                 queue = deque()
@@ -60,6 +69,7 @@ class SlidingWindowRateLimiter:
     def reset(self) -> None:
         with self._lock:
             self._hits.clear()
+            self._calls_since_cleanup = 0
 
 
 def rate_limit_key(request: Request) -> str:
