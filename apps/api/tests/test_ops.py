@@ -4,11 +4,16 @@ import io
 import sqlite3
 import tarfile
 import tempfile
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from app.ops import backup, restore
+from app.db import SessionLocal
+from app.models import ImportJob
+from app.ops import reconcile_incomplete_jobs
 
 
 def test_backup_and_restore_round_trip() -> None:
@@ -56,3 +61,33 @@ def test_restore_rejects_path_traversal() -> None:
 
         with pytest.raises(ValueError, match="unsafe_archive_entry"):
             restore(malicious, data_dir)
+
+
+def test_reconcile_incomplete_jobs_marks_restart_failures() -> None:
+    job_id = str(uuid.uuid4())
+    db = SessionLocal()
+    try:
+        db.add(
+            ImportJob(
+                id=job_id,
+                project_id=str(uuid.uuid4()),
+                source_asset_id=str(uuid.uuid4()),
+                status="running",
+                created_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+                started_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    assert reconcile_incomplete_jobs() >= 1
+
+    db = SessionLocal()
+    try:
+        job = db.get(ImportJob, job_id)
+        assert job is not None
+        assert job.status == "failed"
+        assert job.error == "worker_restarted"
+    finally:
+        db.close()

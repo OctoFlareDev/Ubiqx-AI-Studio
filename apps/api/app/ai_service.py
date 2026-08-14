@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from .db import SessionLocal
 from .models import AiTask, Asset, Project
+from .ops import job_timed_out
 from .storage import AssetStore
 
 
@@ -339,10 +340,15 @@ def run_ai_task(task_id: str) -> None:
         task.status = "running"
         task.started_at = _now()
         db.commit()
+        if job_timed_out(task.started_at, task.created_at):
+            raise AiTaskFailure("job_timeout", "job_timeout", retryable=False)
         started_at = task.started_at
         attempts = 0
 
         while attempts < MAX_ATTEMPTS:
+            if job_timed_out(task.started_at, task.created_at):
+                _mark_failed(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at, error="job_timeout")
+                return
             if task_id in CANCELLATION_REQUESTS:
                 _mark_cancelled(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at)
                 return
@@ -377,6 +383,10 @@ def run_ai_task(task_id: str) -> None:
                     return
                 _sleep_backoff(attempts)
                 continue
+
+            if job_timed_out(task.started_at, task.created_at):
+                _mark_failed(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at, error="job_timeout")
+                return
 
             if task_id in CANCELLATION_REQUESTS:
                 _mark_cancelled(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at)

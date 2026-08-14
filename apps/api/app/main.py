@@ -19,6 +19,7 @@ from .config import settings
 from .db import get_db, init_db
 from .deps import get_current_user, get_owned_project, require_scope
 from .logging import configure_logging
+from .ops import reconcile_incomplete_jobs
 from .ai_service import CANCELLATION_REQUESTS as AI_CANCELLATION_REQUESTS, run_ai_task
 from .export_service import run_export_job, scene_has_exportable_nodes
 from .import_service import CANCELLATION_REQUESTS, run_import_job
@@ -68,6 +69,7 @@ request_logger = logging.getLogger("ubiqx.request")
 async def lifespan(app: FastAPI):
     configure_logging()
     init_db()
+    reconcile_incomplete_jobs()
     yield
 
 

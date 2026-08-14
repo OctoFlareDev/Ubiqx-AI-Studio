@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import SessionLocal
 from .models import Asset, ExportJob, Project, Scene, SceneNode
+from .ops import job_timed_out
 
 
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
@@ -701,6 +702,9 @@ def run_export_job(job_id: str) -> None:
         job.started_at = _now()
         db.commit()
 
+        if job_timed_out(job.started_at, job.created_at):
+            raise ExportFailure("job_timeout")
+
         project = db.get(Project, job.project_id)
         if project is None:
             raise ExportFailure("project_missing")
@@ -713,6 +717,8 @@ def run_export_job(job_id: str) -> None:
             scene,
             export_id=job.id,
         )
+        if job_timed_out(job.started_at, job.created_at):
+            raise ExportFailure("job_timeout")
         job.output_path = str(package_path)
         job.manifest = manifest
         job.warnings = warnings

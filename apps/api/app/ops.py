@@ -6,9 +6,58 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from sqlalchemy import select
+
+from .config import settings
+from .db import SessionLocal
+from .models import AiTask, ExportJob, ImportJob
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def job_age_seconds(started_at: datetime | None, created_at: datetime | None) -> float:
+    value = started_at or created_at
+    if value is None:
+        return 0
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return max(0, (datetime.now(timezone.utc) - value).total_seconds())
+
+
+def job_timed_out(started_at: datetime | None, created_at: datetime | None) -> bool:
+    return job_age_seconds(started_at, created_at) >= settings.job_timeout_seconds
+
+
+def reconcile_incomplete_jobs() -> int:
+    """Fail jobs that cannot be resumed after a service process restart.
+
+    BackgroundTasks are intentionally local to this lightweight deployment. A
+    persisted terminal error is safer than leaving a queued/running record that
+    clients poll forever; callers can create a new job after inspecting it.
+    """
+    db = SessionLocal()
+    changed = 0
+    try:
+        now = datetime.now(timezone.utc)
+        for model in (ImportJob, ExportJob, AiTask):
+            jobs = db.scalars(
+                select(model).where(model.status.in_(("queued", "running")))
+            ).all()
+            for job in jobs:
+                job.status = "failed"
+                if hasattr(job, "error"):
+                    job.error = "worker_restarted"
+                else:
+                    job.last_error = "worker_restarted"
+                job.finished_at = now
+                changed += 1
+        if changed:
+            db.commit()
+        return changed
+    finally:
+        db.close()
 
 
 def backup(data_dir: Path, target: Path) -> dict:

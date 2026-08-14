@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from .db import SessionLocal
 from .models import Asset, ImportJob, Project, Scene, SceneNode
+from .ops import job_timed_out
 from .storage import AssetStore
 
 
@@ -265,6 +266,9 @@ def run_import_job(job_id: str) -> None:
         job.started_at = _now()
         db.commit()
 
+        if job_timed_out(job.started_at, job.created_at):
+            raise ImportFailure("job_timeout")
+
         source_asset = db.get(Asset, job.source_asset_id)
         if source_asset is None:
             raise ImportFailure("source_asset_missing")
@@ -274,6 +278,8 @@ def run_import_job(job_id: str) -> None:
 
         parser = PSDImportParser(source_name=Path(source_asset.original_name).stem)
         parsed = parser.parse(Path(source_asset.storage_path))
+        if job_timed_out(job.started_at, job.created_at):
+            raise ImportFailure("job_timeout")
         job.progress = 0.6
         job.warnings = parsed.warnings
         db.commit()
@@ -283,6 +289,9 @@ def run_import_job(job_id: str) -> None:
             job.finished_at = _now()
             db.commit()
             return
+
+        if job_timed_out(job.started_at, job.created_at):
+            raise ImportFailure("job_timeout")
 
         _materialize_document(db, project, source_asset, parsed)
         job.progress = 1

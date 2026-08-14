@@ -25,6 +25,7 @@ class Settings:
     api_key_prefix: str = "ubq_"
     rate_limit_per_key: int = int(os.getenv("UBIQX_RATE_LIMIT", "1000"))
     rate_limit_window_seconds: float = float(os.getenv("UBIQX_RATE_LIMIT_WINDOW_SECONDS", "60"))
+    job_timeout_seconds: float = float(os.getenv("UBIQX_JOB_TIMEOUT_SECONDS", "300"))
 
     @property
     def resolved_database_url(self) -> str:
