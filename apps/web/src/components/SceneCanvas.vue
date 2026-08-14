@@ -364,6 +364,10 @@ function onPointerDown(event: PointerEvent) {
   const hit = hitTest(point)
   if (hit) {
     studio.selectNode(hit.id)
+    if (hit.locked) {
+      event.preventDefault()
+      return
+    }
     studio.startMutation()
     interaction = {
       type: 'move',
