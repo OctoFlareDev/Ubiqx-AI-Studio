@@ -58,3 +58,61 @@ def test_scene_node_properties_round_trip(
     assert body["opacity"] == 0.4
     assert body["transform"]["x"] == 40
     assert body["transform"]["rotation"] == 15
+
+
+def test_scene_node_parent_invariants_are_enforced(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project = client.post(
+        "/api/v1/projects",
+        headers=auth_headers,
+        json={"name": "Parent Invariants"},
+    ).json()
+    scene = client.get(f"/api/v1/projects/{project['id']}/scene", headers=auth_headers).json()
+    create_url = f"/api/v1/projects/{project['id']}/scene/nodes"
+
+    missing_parent = client.post(
+        create_url,
+        headers=auth_headers,
+        json={"parent_id": "missing-parent", "name": "Invalid"},
+    )
+    assert missing_parent.status_code == 400
+    assert missing_parent.json()["error"]["code"] == "invalid_parent"
+
+    parent = client.post(create_url, headers=auth_headers, json={"name": "Parent"}).json()
+    child = client.post(
+        create_url,
+        headers=auth_headers,
+        json={"parent_id": parent["id"], "name": "Child"},
+    ).json()
+
+    self_parent = client.post(
+        f"/api/v1/scenes/{scene['id']}/nodes/{parent['id']}/move",
+        headers=auth_headers,
+        json={"parent_id": parent["id"]},
+    )
+    assert self_parent.status_code == 400
+
+    descendant_parent = client.post(
+        f"/api/v1/scenes/{scene['id']}/nodes/{parent['id']}/move",
+        headers=auth_headers,
+        json={"parent_id": child["id"]},
+    )
+    assert descendant_parent.status_code == 400
+
+    other_project = client.post(
+        "/api/v1/projects",
+        headers=auth_headers,
+        json={"name": "Other Scene"},
+    ).json()
+    other_scene = client.get(
+        f"/api/v1/projects/{other_project['id']}/scene",
+        headers=auth_headers,
+    ).json()
+    cross_scene = client.post(
+        f"/api/v1/scenes/{scene['id']}/nodes/{child['id']}/move",
+        headers=auth_headers,
+        json={"parent_id": other_scene["root_node_id"]},
+    )
+    assert cross_scene.status_code == 400

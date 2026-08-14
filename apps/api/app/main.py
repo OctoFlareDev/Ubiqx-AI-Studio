@@ -187,6 +187,42 @@ def _safe_export_filename(name: str) -> str:
     return cleaned[:120]
 
 
+def _get_scene_node_for_parent(db: Session, scene_id: str, parent_id: str) -> SceneNode:
+    parent = db.get(SceneNode, parent_id)
+    if parent is None or parent.scene_id != scene_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_parent")
+    return parent
+
+
+def _validate_scene_parent(
+    db: Session,
+    scene_id: str,
+    parent_id: str | None,
+    *,
+    node_id: str | None = None,
+) -> None:
+    if parent_id is None:
+        return
+    if node_id is not None and parent_id == node_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_parent")
+
+    parent = _get_scene_node_for_parent(db, scene_id, parent_id)
+    if node_id is None:
+        return
+
+    nodes = {
+        node.id: node.parent_id
+        for node in db.scalars(select(SceneNode).where(SceneNode.scene_id == scene_id)).all()
+    }
+    current_id: str | None = parent.id
+    visited: set[str] = set()
+    while current_id is not None and current_id not in visited:
+        if current_id == node_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_parent")
+        visited.add(current_id)
+        current_id = nodes.get(current_id)
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "ubiqx-api"}
@@ -447,6 +483,7 @@ def create_scene_node(
     if scene is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scene_not_found")
     parent_id = payload.parent_id or scene.root_node_id
+    _validate_scene_parent(db, scene.id, parent_id)
     node = SceneNode(
         id=str(uuid.uuid4()),
         scene_id=scene.id,
@@ -529,6 +566,7 @@ def move_scene_node(
 ) -> SceneNode:
     node = get_scene_node(scene_id, node_id, user, db)
     if payload.parent_id is not None:
+        _validate_scene_parent(db, scene_id, payload.parent_id, node_id=node.id)
         node.parent_id = payload.parent_id
     if payload.order_index is not None:
         node.order_index = payload.order_index
