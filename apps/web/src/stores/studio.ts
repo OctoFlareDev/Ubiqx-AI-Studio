@@ -98,6 +98,7 @@ export const useStudioStore = defineStore('studio', {
       }
     },
     async renameProject(projectId: string, name: string) {
+      this.saving = true
       try {
         const current = this.projects.find((item) => item.id === projectId)
         const project = await api.updateProject(projectId, { name }, current?.version)
@@ -107,6 +108,8 @@ export const useStudioStore = defineStore('studio', {
       } catch (error) {
         this.error = toMessage(error)
         throw error
+      } finally {
+        this.saving = false
       }
     },
     async archiveProject(projectId: string) {

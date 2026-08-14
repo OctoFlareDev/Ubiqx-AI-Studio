@@ -33,7 +33,6 @@ const nameDraft = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedAssetId = ref<string | null>(null)
 const mobilePanelOpen = ref(false)
-const saveState = ref<'idle' | 'saving' | 'saved'>('saved')
 const exportError = ref<string | null>(null)
 const previewCloseButton = ref<HTMLButtonElement | null>(null)
 let previewReturnFocus: HTMLElement | null = null
@@ -113,26 +112,17 @@ async function saveName() {
     editingName.value = false
     return
   }
-  saveState.value = 'saving'
   try {
     await studio.renameProject(project.value.id, nameDraft.value.trim())
     editingName.value = false
-    saveState.value = 'saved'
   } catch (error) {
-    saveState.value = 'idle'
     handleActionError(error)
   }
 }
 
 async function saveProject() {
   if (!project.value) return
-  saveState.value = 'saving'
-  let saved = false
-  await runAction(async () => {
-    await studio.renameProject(project.value!.id, project.value!.name)
-    saved = true
-  })
-  saveState.value = saved ? 'saved' : 'idle'
+  await runAction(() => studio.renameProject(project.value!.id, project.value!.name))
 }
 
 function triggerUpload() {
@@ -296,7 +286,7 @@ function handlePreviewKeydown(event: KeyboardEvent) {
             <Pencil :size="14" />
           </button>
         </template>
-        <span class="save-state" :class="saveState">{{ saveState }}</span>
+        <span class="save-state" :class="studio.saving ? 'saving' : 'saved'">{{ studio.saving ? 'saving' : 'saved' }}</span>
       </div>
 
       <div class="topbar-actions">
