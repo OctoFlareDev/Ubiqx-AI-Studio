@@ -102,6 +102,19 @@ class ProjectList(BaseModel):
     next_cursor: str | None = None
 
 
+class ProjectRevisionRead(ORMModel):
+    id: str
+    project_id: str
+    revision_number: int
+    scene_snapshot: dict[str, Any]
+    created_at: datetime
+
+
+class ProjectRevisionList(BaseModel):
+    items: list[ProjectRevisionRead]
+    next_cursor: str | None = None
+
+
 class AssetRead(ORMModel):
     id: str
     project_id: str

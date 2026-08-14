@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from .db import SessionLocal
 from .models import Asset, ImportJob, Project, Scene, SceneNode
 from .ops import job_timed_out
+from .revision_service import capture_project_revision
 from .storage import AssetStore
 
 
@@ -413,6 +414,7 @@ def run_import_job(job_id: str) -> None:
         job.finished_at = _now()
         project.last_autosaved_at = _now()
         project.updated_at = _now()
+        capture_project_revision(db, project)
         db.commit()
         logger.info("import_job_succeeded", extra={"job_id": job_id})
     except ImportFailure as exc:

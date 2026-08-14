@@ -59,6 +59,8 @@ HTTP status mapping:
 - `POST /projects/{project_id}/archive` archive project.
 - `POST /projects/{project_id}/restore` restore archived project.
 - `DELETE /projects/{project_id}` soft-delete project.
+- `GET /projects/{project_id}/revisions` list immutable local recovery points.
+- `POST /projects/{project_id}/revisions/{revision_number}/restore` restore a scene snapshot.
 
 ### Assets
 
@@ -220,6 +222,13 @@ Idempotency-Key: <client-generated-value>
 ```
 
 The server returns the original result for a repeated key within the retention window.
+
+## Revisions
+
+Scene mutations create immutable `ProjectRevision` snapshots. Revision restore
+is an optimistic mutation and accepts the current project `ETag` through
+`If-Match`; a successful restore creates a new revision rather than rewriting
+history.
 
 ## Task Polling
 

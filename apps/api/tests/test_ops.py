@@ -9,9 +9,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from sqlalchemy import text
 
 from app.ops import backup, restore
-from app.db import SessionLocal
+from app.db import SessionLocal, engine, init_db
 from app.models import ImportJob
 from app.ops import reconcile_incomplete_jobs
 
@@ -64,6 +65,7 @@ def test_restore_rejects_path_traversal() -> None:
 
 
 def test_reconcile_incomplete_jobs_marks_restart_failures() -> None:
+    init_db()
     job_id = str(uuid.uuid4())
     db = SessionLocal()
     try:
@@ -91,3 +93,10 @@ def test_reconcile_incomplete_jobs_marks_restart_failures() -> None:
         assert job.error == "worker_restarted"
     finally:
         db.close()
+
+
+def test_schema_migration_ledger_is_initialized() -> None:
+    init_db()
+    with engine.connect() as connection:
+        version = connection.execute(text("SELECT MAX(version) FROM schema_migrations")).scalar_one()
+    assert version == 1

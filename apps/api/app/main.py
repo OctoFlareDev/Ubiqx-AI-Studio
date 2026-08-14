@@ -28,7 +28,7 @@ from .ops import reconcile_incomplete_jobs
 from .ai_service import CANCELLATION_REQUESTS as AI_CANCELLATION_REQUESTS, run_ai_task
 from .export_service import run_export_job, scene_has_exportable_nodes
 from .import_service import CANCELLATION_REQUESTS, run_import_job
-from .models import AiTask, ApiKey, Asset, ExportJob, IdempotencyRecord, ImportJob, LocalUser, Project, Scene, SceneNode
+from .models import AiTask, ApiKey, Asset, ExportJob, IdempotencyRecord, ImportJob, LocalUser, Project, ProjectRevision, Scene, SceneNode
 from .rate_limit import SlidingWindowRateLimiter, rate_limit_key
 from .schemas import (
     AiTaskCreate,
@@ -49,6 +49,8 @@ from .schemas import (
     ProjectCreate,
     ProjectList,
     ProjectRead,
+    ProjectRevisionList,
+    ProjectRevisionRead,
     ProjectUpdate,
     SceneNodeCreate,
     SceneNodeMove,
@@ -65,6 +67,7 @@ from .security import (
     revoke_api_key,
 )
 from .storage import AssetStore
+from .revision_service import capture_project_revision, restore_project_revision
 
 
 request_logger = logging.getLogger("ubiqx.request")
@@ -558,6 +561,63 @@ def list_projects(
     return ProjectList(items=[_project_read(project) for project in projects[:limit]], next_cursor=next_cursor)
 
 
+@app.get("/api/v1/projects/{project_id}/revisions", response_model=ProjectRevisionList)
+def list_project_revisions(
+    project_id: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None),
+    user: LocalUser = Depends(require_scope("projects:read")),
+    db: Session = Depends(get_db),
+) -> ProjectRevisionList:
+    get_owned_project(project_id, user, db)
+    offset = _cursor_offset(cursor)
+    revisions = db.scalars(
+        select(ProjectRevision)
+        .where(ProjectRevision.project_id == project_id)
+        .order_by(ProjectRevision.revision_number.desc())
+        .offset(offset)
+        .limit(limit + 1)
+    ).all()
+    next_cursor = str(offset + limit) if len(revisions) > limit else None
+    return ProjectRevisionList(
+        items=[ProjectRevisionRead.model_validate(revision) for revision in revisions[:limit]],
+        next_cursor=next_cursor,
+    )
+
+
+@app.post("/api/v1/projects/{project_id}/revisions/{revision_number}/restore", response_model=ProjectRead)
+def restore_project_revision_endpoint(
+    project_id: str,
+    revision_number: int,
+    response: Response,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: LocalUser = Depends(require_scope("projects:write")),
+    db: Session = Depends(get_db),
+) -> Project:
+    project = get_owned_project(project_id, user, db)
+    _check_if_match(project, if_match)
+    revision = db.scalar(
+        select(ProjectRevision).where(
+            ProjectRevision.project_id == project_id,
+            ProjectRevision.revision_number == revision_number,
+        )
+    )
+    if revision is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="revision_not_found")
+    try:
+        restore_project_revision(db, project, revision)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    project.updated_at = _now()
+    project.last_autosaved_at = _now()
+    capture_project_revision(db, project)
+    db.commit()
+    db.refresh(project)
+    _set_etag(response, project)
+    return project
+
+
 @app.post("/api/v1/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
 def create_project(
     payload: ProjectCreate,
@@ -591,6 +651,7 @@ def create_project(
         transform={"x": 0, "y": 0, "width": payload.width, "height": payload.height, "rotation": 0, "scale_x": 1, "scale_y": 1},
     )
     db.add_all([project, scene, root])
+    capture_project_revision(db, project)
     db.commit()
     db.refresh(project)
     _set_etag(response, project)
@@ -627,6 +688,7 @@ def update_project(
     else:
         project.last_autosaved_at = _now()
     project.updated_at = _now()
+    capture_project_revision(db, project)
     db.commit()
     db.refresh(project)
     _set_etag(response, project)
@@ -750,6 +812,7 @@ def create_scene_node(
         order_index=len(scene.nodes),
     )
     db.add(node)
+    capture_project_revision(db, project)
     db.commit()
     db.refresh(node)
     _set_etag(response, node)
@@ -812,6 +875,11 @@ def update_scene_node(
     if payload.effect_metadata is not None:
         node.effect_metadata = payload.effect_metadata
     node.updated_at = _now()
+    scene = db.get(Scene, scene_id)
+    project = db.get(Project, scene.project_id) if scene is not None else None
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project_not_found")
+    capture_project_revision(db, project)
     db.commit()
     db.refresh(node)
     _set_etag(response, node)
@@ -829,7 +897,13 @@ def delete_scene_node(
     node = get_scene_node(scene_id, node_id, Response(), user, db)
     _ensure_mutable_scene_node(db, scene_id, node)
     _check_if_match(node, if_match)
+    scene = db.get(Scene, scene_id)
+    project = db.get(Project, scene.project_id) if scene is not None else None
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project_not_found")
     db.delete(node)
+    db.flush()
+    capture_project_revision(db, project)
     db.commit()
 
 
@@ -852,6 +926,11 @@ def move_scene_node(
     if payload.order_index is not None:
         node.order_index = payload.order_index
     node.updated_at = _now()
+    scene = db.get(Scene, scene_id)
+    project = db.get(Project, scene.project_id) if scene is not None else None
+    if project is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project_not_found")
+    capture_project_revision(db, project)
     db.commit()
     db.refresh(node)
     _set_etag(response, node)

@@ -58,6 +58,17 @@ class Project(Base):
     assets: Mapped[list[Asset]] = relationship(back_populates="project", cascade="all, delete-orphan")
 
 
+class ProjectRevision(Base):
+    __tablename__ = "project_revisions"
+    __table_args__ = (UniqueConstraint("project_id", "revision_number", name="uq_project_revision_number"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    project_id: Mapped[str] = mapped_column(ForeignKey("projects.id"), index=True)
+    revision_number: Mapped[int] = mapped_column(Integer)
+    scene_snapshot: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Scene(Base):
     __tablename__ = "scenes"
 

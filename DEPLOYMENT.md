@@ -40,6 +40,7 @@ Environment variables (all optional for local use):
 - `UBIQX_DATABASE_URL` — SQLAlchemy URL (defaults to SQLite under the data dir).
 - `UBIQX_MAX_UPLOAD_BYTES` — upload cap (default 50 MiB).
 - `UBIQX_RATE_LIMIT` / `UBIQX_RATE_LIMIT_WINDOW_SECONDS` — rate limits.
+- `UBIQX_IDEMPOTENCY_RETENTION_SECONDS` — retry-response retention (default 24h).
 - `UBIQX_ALLOW_REMOTE_BOOTSTRAP` — keep `0` (the default) unless a controlled
   deployment explicitly needs remote first-run bootstrap; remote clients are
   rejected otherwise.
@@ -81,6 +82,11 @@ python scripts/backup.py restore /path/to/ubiqx-backup.tar.gz
 4. Start the service.
 
 Restore is guarded against path-traversal entries in the archive.
+
+On startup the API creates missing tables and applies additive schema
+migrations recorded in the `schema_migrations` table. Project scene changes
+also create immutable local recovery revisions, which can be listed and
+restored through the project revisions API.
 
 ## Verification
 

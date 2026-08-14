@@ -135,3 +135,39 @@ def test_idempotency_key_replays_a_mutation_and_rejects_payload_changes(
     changed = client.post("/api/v1/projects", headers=headers, json={"name": "Different Payload"})
     assert changed.status_code == 409
     assert changed.json()["error"]["code"] == "idempotency_key_reused"
+
+
+def test_project_revisions_capture_and_restore_scene_state(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project = client.post("/api/v1/projects", headers=auth_headers, json={"name": "Revisioned Project"}).json()
+    scene = client.get(f"/api/v1/projects/{project['id']}/scene", headers=auth_headers).json()
+    node_url = f"/api/v1/projects/{project['id']}/scene/nodes"
+    node = client.post(
+        node_url,
+        headers=auth_headers,
+        json={"parent_id": scene["root_node_id"], "name": "Before Edit"},
+    ).json()
+    edited = client.patch(
+        f"/api/v1/scenes/{scene['id']}/nodes/{node['id']}",
+        headers=auth_headers,
+        json={"name": "After Edit"},
+    )
+    assert edited.status_code == 200
+
+    revisions = client.get(f"/api/v1/projects/{project['id']}/revisions", headers=auth_headers)
+    assert revisions.status_code == 200
+    revision_items = revisions.json()["items"]
+    assert [item["revision_number"] for item in revision_items[:3]] == [3, 2, 1]
+    assert revision_items[1]["scene_snapshot"]["scenes"][0]["nodes"][-1]["name"] == "Before Edit"
+
+    restored = client.post(
+        f"/api/v1/projects/{project['id']}/revisions/2/restore",
+        headers={**auth_headers, "If-Match": '"1"'},
+    )
+    assert restored.status_code == 200
+    assert restored.json()["version"] == 2
+    nodes = client.get(f"/api/v1/scenes/{scene['id']}/nodes", headers=auth_headers).json()
+    restored_node = next(item for item in nodes if item["id"] == node["id"])
+    assert restored_node["name"] == "Before Edit"
