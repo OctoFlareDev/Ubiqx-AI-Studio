@@ -38,3 +38,23 @@ def test_contract_covers_expected_resources(client: TestClient) -> None:
     for path, methods in expected.items():
         assert path in paths, f"contract missing path: {path}"
         assert methods.issubset(set(paths[path])), f"contract missing methods for {path}"
+
+
+def test_contract_documents_stable_error_envelope(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    assert "ErrorEnvelope" in schema["components"]["schemas"]
+    error_codes = {"400", "401", "403", "404", "409", "429", "500"}
+
+    for path, path_item in schema["paths"].items():
+        if not path.startswith("/api/v1/"):
+            continue
+        for operation in path_item.values():
+            if not isinstance(operation, dict) or "responses" not in operation:
+                continue
+            responses = operation["responses"]
+            assert "422" not in responses
+            for code in error_codes:
+                response = responses[code]
+                assert response["content"]["application/json"]["schema"] == {
+                    "$ref": "#/components/schemas/ErrorEnvelope"
+                }

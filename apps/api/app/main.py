@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -99,6 +100,62 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _error_response(description: str) -> dict[str, object]:
+    return {
+        "description": description,
+        "content": {
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/ErrorEnvelope"},
+            }
+        },
+    }
+
+
+def _openapi_with_error_contract() -> dict[str, object]:
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    components = schema.setdefault("components", {}).setdefault("schemas", {})
+    error_schema = ErrorEnvelope.model_json_schema(ref_template="#/components/schemas/{model}")
+    for name, definition in error_schema.get("$defs", {}).items():
+        components[name] = definition
+    components["ErrorEnvelope"] = {
+        key: value for key, value in error_schema.items() if key != "$defs"
+    }
+
+    error_responses = {
+        "400": "Invalid request or domain rule.",
+        "401": "Missing or invalid credentials.",
+        "403": "Authenticated but not allowed by scope or ownership.",
+        "404": "Resource not found.",
+        "409": "Conflict or stale mutation.",
+        "429": "Rate limit or usage quota exceeded.",
+        "500": "Unexpected server error.",
+    }
+    for path, path_item in schema.get("paths", {}).items():
+        if not path.startswith("/api/v1/"):
+            continue
+        for operation in path_item.values():
+            if not isinstance(operation, dict) or "responses" not in operation:
+                continue
+            responses = operation["responses"]
+            responses.pop("422", None)
+            for code, description in error_responses.items():
+                responses.setdefault(code, _error_response(description))
+
+    app.openapi_schema = schema
+    return schema
+
+
+app.openapi = _openapi_with_error_contract
 
 
 @app.middleware("http")
