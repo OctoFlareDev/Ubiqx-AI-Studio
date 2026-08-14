@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from ipaddress import ip_address
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -210,6 +210,18 @@ def _safe_export_filename(name: str) -> str:
     return cleaned[:120]
 
 
+def _cursor_offset(cursor: str | None) -> int:
+    if cursor is None:
+        return 0
+    try:
+        offset = int(cursor)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_cursor") from None
+    if offset < 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_cursor")
+    return offset
+
+
 def _get_scene_node_for_parent(db: Session, scene_id: str, parent_id: str) -> SceneNode:
     parent = db.get(SceneNode, parent_id)
     if parent is None or parent.scene_id != scene_id:
@@ -370,15 +382,21 @@ def revoke_user_api_key(
 
 @app.get("/api/v1/projects", response_model=ProjectList)
 def list_projects(
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None),
     user: LocalUser = Depends(require_scope("projects:read")),
     db: Session = Depends(get_db),
 ) -> ProjectList:
+    offset = _cursor_offset(cursor)
     projects = db.scalars(
         select(Project)
         .where(Project.user_id == user.id, Project.status == "active")
         .order_by(Project.updated_at.desc())
+        .offset(offset)
+        .limit(limit + 1)
     ).all()
-    return ProjectList(items=[_project_read(project) for project in projects], next_cursor=None)
+    next_cursor = str(offset + limit) if len(projects) > limit else None
+    return ProjectList(items=[_project_read(project) for project in projects[:limit]], next_cursor=next_cursor)
 
 
 @app.post("/api/v1/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
@@ -956,16 +974,22 @@ def get_ai_task(
 @app.get("/api/v1/projects/{project_id}/ai-tasks", response_model=AiTaskList)
 def list_ai_tasks(
     project_id: str,
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = Query(default=None),
     user: LocalUser = Depends(require_scope("ai:read")),
     db: Session = Depends(get_db),
 ) -> AiTaskList:
     get_owned_project(project_id, user, db)
+    offset = _cursor_offset(cursor)
     tasks = db.scalars(
         select(AiTask)
         .where(AiTask.project_id == project_id)
         .order_by(AiTask.created_at.desc())
+        .offset(offset)
+        .limit(limit + 1)
     ).all()
-    return AiTaskList(items=[AiTaskRead.model_validate(task) for task in tasks], next_cursor=None)
+    next_cursor = str(offset + limit) if len(tasks) > limit else None
+    return AiTaskList(items=[AiTaskRead.model_validate(task) for task in tasks[:limit]], next_cursor=next_cursor)
 
 
 @app.post("/api/v1/ai-tasks/{task_id}/cancel", response_model=AiTaskRead)

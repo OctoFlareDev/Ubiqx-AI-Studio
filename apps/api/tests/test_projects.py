@@ -62,3 +62,30 @@ def test_project_names_must_not_be_blank(client: TestClient, auth_headers: dict[
         json={"name": "\t"},
     )
     assert update_response.status_code == 400
+
+
+def test_project_list_supports_cursor_pagination(client: TestClient, auth_headers: dict[str, str]) -> None:
+    for index in range(3):
+        response = client.post(
+            "/api/v1/projects",
+            headers=auth_headers,
+            json={"name": f"Page {index}"},
+        )
+        assert response.status_code == 201
+
+    first = client.get("/api/v1/projects?limit=2", headers=auth_headers)
+    assert first.status_code == 200
+    first_body = first.json()
+    assert len(first_body["items"]) == 2
+    assert first_body["next_cursor"] is not None
+
+    second = client.get(
+        f"/api/v1/projects?limit=2&cursor={first_body['next_cursor']}",
+        headers=auth_headers,
+    )
+    assert second.status_code == 200
+    assert len(second.json()["items"]) >= 1
+
+    invalid = client.get("/api/v1/projects?cursor=not-a-cursor", headers=auth_headers)
+    assert invalid.status_code == 400
+    assert invalid.json()["error"]["code"] == "invalid_cursor"
