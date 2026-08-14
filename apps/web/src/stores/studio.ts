@@ -6,6 +6,7 @@ import type { AiTask, Asset, ExportJob, ImportJob, Profile, Project, Scene, Scen
 const POLL_INTERVAL_MS = 350
 const POLL_TIMEOUT_MS = 5 * 60 * 1000
 const MAX_CONSECUTIVE_POLL_ERRORS = 3
+let bootPromise: Promise<void> | null = null
 
 interface StudioState {
   booted: boolean
@@ -65,16 +66,24 @@ export const useStudioStore = defineStore('studio', {
   actions: {
     async boot() {
       if (this.booted) return
-      this.loading = true
+      if (bootPromise) return bootPromise
+      bootPromise = (async () => {
+        this.loading = true
+        try {
+          this.profile = await ensureSession()
+          await this.loadProjects()
+          this.booted = true
+        } catch (error) {
+          this.error = toMessage(error)
+          this.booted = true
+        } finally {
+          this.loading = false
+        }
+      })()
       try {
-        this.profile = await ensureSession()
-        await this.loadProjects()
-        this.booted = true
-      } catch (error) {
-        this.error = toMessage(error)
-        this.booted = true
+        await bootPromise
       } finally {
-        this.loading = false
+        bootPromise = null
       }
     },
     async loadProjects() {
@@ -84,6 +93,7 @@ export const useStudioStore = defineStore('studio', {
       this.error = null
     },
     async createProject(name: string) {
+      if (!this.booted) await this.boot()
       this.loading = true
       try {
         const project = await api.createProject({ name })
