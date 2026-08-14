@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.import_service import ParsedNode, _scale_parsed_node
+
 
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures"
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -117,6 +119,30 @@ def test_import_raster_asset_creates_image_node(client: TestClient, auth_headers
     nodes = client.get(f"/api/v1/scenes/{scene['id']}/nodes", headers=auth_headers).json()
     image = next(node for node in nodes if node["type"] == "image")
     assert image["asset_id"] == upload.json()["id"]
+
+
+def test_oversized_document_scale_preserves_scene_coordinates() -> None:
+    child = ParsedNode(
+        type="image",
+        name="Child",
+        visible=True,
+        locked=False,
+        opacity=1,
+        transform={"x": 2000, "y": 1000, "width": 4000, "height": 2000},
+    )
+    root = ParsedNode(
+        type="root",
+        name="Root",
+        visible=True,
+        locked=False,
+        opacity=1,
+        transform={"x": 0, "y": 0, "width": 8192, "height": 4096},
+        children=[child],
+    )
+    _scale_parsed_node(root, 0.5)
+    assert root.transform["width"] == 4096
+    assert child.transform["x"] == 1000
+    assert child.transform["width"] == 2000
 
 
 def test_failed_import_does_not_replace_scene(

@@ -20,6 +20,7 @@ from .storage import AssetStore
 
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 CANCELLATION_REQUESTS: set[str] = set()
+MAX_DIMENSION = 4096
 
 logger = logging.getLogger("ubiqx.import")
 
@@ -172,7 +173,21 @@ class PSDImportParser:
             if child is not None:
                 root.children.append(child)
 
-        return ParsedDocument(width=float(psd.width), height=float(psd.height), root=root, warnings=self.warnings)
+        width = float(psd.width)
+        height = float(psd.height)
+        scale = min(1, MAX_DIMENSION / max(width, height))
+        if scale < 1:
+            _scale_parsed_node(root, scale)
+            self.warnings.append(
+                _warning(
+                    "document_downsampled",
+                    f"The source document was downsampled from {int(width)}x{int(height)} to "
+                    f"{int(width * scale)}x{int(height * scale)} for the 4096 pixel processing limit.",
+                )
+            )
+            width *= scale
+            height *= scale
+        return ParsedDocument(width=width, height=height, root=root, warnings=self.warnings)
 
     def _convert_layer(self, layer: Layer) -> ParsedNode | None:
         if layer.kind in {"background", "adjustment", "brightnesscontrast"}:
@@ -221,8 +236,8 @@ class PSDImportParser:
         if image is None:
             return None
         image = image.convert("RGBA")
-        if max(image.size) > 4096:
-            ratio = 4096 / max(image.size)
+        if max(image.size) > MAX_DIMENSION:
+            ratio = MAX_DIMENSION / max(image.size)
             image = image.resize((max(1, int(image.width * ratio)), max(1, int(image.height * ratio))))
             self.warnings.append(
                 _warning(
@@ -247,6 +262,14 @@ class PSDImportParser:
             width=image.width,
             height=image.height,
         )
+
+
+def _scale_parsed_node(node: ParsedNode, scale: float) -> None:
+    transform = node.transform
+    for key in ("x", "y", "width", "height"):
+        transform[key] = float(transform.get(key, 0) or 0) * scale
+    for child in node.children:
+        _scale_parsed_node(child, scale)
 
 
 def run_import_job(job_id: str) -> None:
