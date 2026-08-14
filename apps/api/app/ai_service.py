@@ -15,6 +15,7 @@ from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .config import settings
 from .db import SessionLocal
 from .models import AiTask, Asset, Project
 from .ops import job_timed_out
@@ -256,15 +257,19 @@ def _build_usage(
     output_asset: Asset | None,
     started_at: datetime,
 ) -> dict:
+    input_pixels = (input_asset.width or 0) * (input_asset.height or 0)
+    output_pixels = (output_asset.width or 0) * (output_asset.height or 0) if output_asset else 0
+    estimated_cost = round((input_pixels + output_pixels) / 1_000_000 * settings.ai_cost_per_megapixel, 8)
     return {
         "provider": task.provider,
         "operation": task.operation,
         "attempts": attempts,
         "input_asset_id": input_asset.id,
         "output_asset_id": output_asset.id if output_asset else None,
-        "input_pixels": (input_asset.width or 0) * (input_asset.height or 0),
-        "output_pixels": (output_asset.width or 0) * (output_asset.height or 0) if output_asset else 0,
-        "estimated_cost": 0,
+        "input_pixels": input_pixels,
+        "output_pixels": output_pixels,
+        "estimated_cost": estimated_cost,
+        "reserved_cost": float((task.usage or {}).get("reserved_cost", estimated_cost)),
         "duration_ms": int((_now() - started_at).total_seconds() * 1000),
     }
 

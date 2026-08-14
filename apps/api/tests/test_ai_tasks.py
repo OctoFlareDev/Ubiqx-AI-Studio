@@ -74,6 +74,8 @@ def test_upscale_task_creates_processed_asset(
     assert task["retry_count"] == 0
     assert task["last_error"] is None
     assert task["output_asset_id"]
+    assert task["usage"]["input_pixels"] == 4
+    assert task["usage"]["estimated_cost"] > 0
 
     output_asset = client.get(f"/api/v1/assets/{task['output_asset_id']}", headers=auth_headers)
     assert output_asset.status_code == 200
@@ -179,6 +181,51 @@ def test_cancel_queued_ai_task(
 
     get = client.get(f"/api/v1/ai-tasks/{task_id}", headers=auth_headers)
     assert get.json()["status"] == "cancelled"
+
+
+def test_ai_task_creation_enforces_concurrency_limit(
+    client: TestClient,
+    auth_headers: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("app.main.run_ai_task", lambda _task_id: None)
+    project_id = _create_project(client, auth_headers)
+    input_asset_id = _upload_png(
+        client,
+        auth_headers,
+        project_id,
+        Image.new("RGBA", (2, 2), (10, 20, 30, 255)),
+    )
+
+    task_ids: list[str] = []
+    for _ in range(2):
+        response = client.post(
+            f"/api/v1/projects/{project_id}/ai-tasks",
+            headers=auth_headers,
+            json={
+                "operation": "upscale",
+                "provider": "local",
+                "input_asset_id": input_asset_id,
+                "options": {"scale": 2},
+            },
+        )
+        assert response.status_code == 201
+        task_ids.append(response.json()["id"])
+
+    limited = client.post(
+        f"/api/v1/projects/{project_id}/ai-tasks",
+        headers=auth_headers,
+        json={
+            "operation": "upscale",
+            "provider": "local",
+            "input_asset_id": input_asset_id,
+            "options": {"scale": 2},
+        },
+    )
+    assert limited.status_code == 429
+    for task_id in task_ids:
+        cancelled = client.post(f"/api/v1/ai-tasks/{task_id}/cancel", headers=auth_headers)
+        assert cancelled.status_code == 200
 
 
 def test_unsupported_ai_input_fails_cleanly(

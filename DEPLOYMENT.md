@@ -41,6 +41,9 @@ Environment variables (all optional for local use):
 - `UBIQX_MAX_UPLOAD_BYTES` — upload cap (default 50 MiB).
 - `UBIQX_RATE_LIMIT` / `UBIQX_RATE_LIMIT_WINDOW_SECONDS` — rate limits.
 - `UBIQX_IDEMPOTENCY_RETENTION_SECONDS` — retry-response retention (default 24h).
+- `UBIQX_AI_DAILY_COST_QUOTA` — rolling 24-hour AI cost allowance (default 10).
+- `UBIQX_AI_MAX_CONCURRENT_TASKS` — per-user queued/running AI task cap (default 2).
+- `UBIQX_AI_COST_PER_MEGAPIXEL` — normalized local usage rate (default 0.01).
 - `UBIQX_ALLOW_REMOTE_BOOTSTRAP` — keep `0` (the default) unless a controlled
   deployment explicitly needs remote first-run bootstrap; remote clients are
   rejected otherwise.

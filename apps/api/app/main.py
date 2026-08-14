@@ -15,7 +15,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPExcepti
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.exc import StaleDataError
@@ -275,6 +275,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         status.HTTP_400_BAD_REQUEST,
         status.HTTP_403_FORBIDDEN,
         status.HTTP_409_CONFLICT,
+        status.HTTP_429_TOO_MANY_REQUESTS,
     }:
         code = exc.detail
     else:
@@ -382,6 +383,34 @@ def _check_if_match(entity: object, value: str | None) -> None:
 
 def _set_etag(response: Response, entity: object) -> None:
     response.headers["ETag"] = f'"{getattr(entity, "version", 1)}"'
+
+
+def _estimate_ai_usage(input_asset: Asset, payload: AiTaskCreate) -> dict[str, float | int]:
+    input_width = input_asset.width or 0
+    input_height = input_asset.height or 0
+    input_pixels = input_width * input_height
+    if input_pixels <= 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="ai_input_dimensions_missing")
+    if payload.operation == "upscale":
+        try:
+            requested_scale = float(payload.options.get("scale", 2))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_options") from None
+        if not 1 <= requested_scale <= 8:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_options")
+        applied_scale = min(requested_scale, 4096 / input_width, 4096 / input_height)
+        output_width = max(1, round(input_width * applied_scale))
+        output_height = max(1, round(input_height * applied_scale))
+    else:
+        output_width = input_width
+        output_height = input_height
+    output_pixels = output_width * output_height
+    estimated_cost = round((input_pixels + output_pixels) / 1_000_000 * settings.ai_cost_per_megapixel, 8)
+    return {
+        "input_pixels": input_pixels,
+        "estimated_output_pixels": output_pixels,
+        "estimated_cost": estimated_cost,
+    }
 
 
 def _get_scene_node_for_parent(db: Session, scene_id: str, parent_id: str) -> SceneNode:
@@ -1216,6 +1245,30 @@ def create_ai_task(
     input_asset = get_asset(payload.input_asset_id, user, db)
     if input_asset.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="asset_not_found")
+    estimate = _estimate_ai_usage(input_asset, payload)
+    active_tasks = db.scalar(
+        select(func.count(AiTask.id))
+        .join(Project, Project.id == AiTask.project_id)
+        .where(
+            Project.user_id == user.id,
+            AiTask.status.in_(("queued", "running")),
+        )
+    ) or 0
+    if active_tasks >= settings.ai_max_concurrent_tasks:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="ai_concurrency_limit")
+    window_start = _now() - timedelta(days=1)
+    recent_tasks = db.scalars(
+        select(AiTask)
+        .join(Project, Project.id == AiTask.project_id)
+        .where(Project.user_id == user.id, AiTask.created_at >= window_start)
+    ).all()
+    reserved_cost = sum(
+        float(task.usage.get("reserved_cost", task.usage.get("estimated_cost", 0)))
+        for task in recent_tasks
+        if isinstance(task.usage, dict)
+    )
+    if reserved_cost + float(estimate["estimated_cost"]) > settings.ai_daily_cost_quota:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="ai_quota_exceeded")
     task = AiTask(
         id=str(uuid.uuid4()),
         project_id=project_id,
@@ -1226,7 +1279,11 @@ def create_ai_task(
         status="queued",
         progress=0,
         retry_count=0,
-        usage={},
+        usage={
+            **estimate,
+            "reserved_cost": estimate["estimated_cost"],
+            "quota_window_started_at": window_start.isoformat(),
+        },
     )
     db.add(task)
     db.commit()
