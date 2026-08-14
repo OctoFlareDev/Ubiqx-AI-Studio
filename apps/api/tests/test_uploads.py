@@ -49,3 +49,34 @@ def test_upload_rejects_unsupported_extension(client: TestClient, auth_headers: 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "unsupported_file_type"
 
+
+def test_asset_delete_rejects_referenced_assets(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    upload = client.post(
+        f"/api/v1/projects/{project_id}/assets",
+        headers=auth_headers,
+        files={"file": ("button.png", PNG_BYTES, "image/png")},
+    )
+    asset_id = upload.json()["id"]
+    scene = client.get(f"/api/v1/projects/{project_id}/scene", headers=auth_headers).json()
+    node = client.post(
+        f"/api/v1/projects/{project_id}/scene/nodes",
+        headers=auth_headers,
+        json={"type": "image", "name": "Button", "asset_id": asset_id},
+    )
+    assert node.status_code == 201
+
+    blocked = client.delete(f"/api/v1/assets/{asset_id}", headers=auth_headers)
+    assert blocked.status_code == 409
+    assert blocked.json()["error"]["code"] == "asset_in_use"
+
+    removed_node = client.delete(
+        f"/api/v1/scenes/{scene['id']}/nodes/{node.json()['id']}",
+        headers=auth_headers,
+    )
+    assert removed_node.status_code == 204
+    deleted = client.delete(f"/api/v1/assets/{asset_id}", headers=auth_headers)
+    assert deleted.status_code == 204

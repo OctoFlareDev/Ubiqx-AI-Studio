@@ -103,6 +103,7 @@ async function onFileSelected(event: Event) {
 
 async function removeSelectedAsset() {
   if (!selectedAsset.value) return
+  if (!window.confirm(`Delete ${selectedAsset.value.original_name} from this project?`)) return
   await studio.deleteAsset(selectedAsset.value.id)
   selectedAssetId.value = null
 }
@@ -457,7 +458,7 @@ function formatBytes(value: number): string {
             <dt>Hash</dt>
             <dd class="hash">{{ selectedAsset.content_hash.slice(0, 14) }}</dd>
           </dl>
-          <button class="icon-button danger" type="button" aria-label="Remove asset reference" title="Remove asset reference" @click="removeSelectedAsset">
+          <button class="icon-button danger" type="button" aria-label="Delete asset" title="Delete asset" @click="removeSelectedAsset">
             <Trash2 :size="15" />
           </button>
           <div v-if="selectedAssetIsRaster" class="ai-action">

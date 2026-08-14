@@ -692,8 +692,19 @@ def delete_asset(
     db: Session = Depends(get_db),
 ) -> None:
     asset = get_asset(asset_id, user, db)
+    references = (
+        db.scalar(select(SceneNode.id).where(SceneNode.asset_id == asset_id).limit(1))
+        or db.scalar(select(ImportJob.id).where(ImportJob.source_asset_id == asset_id).limit(1))
+        or db.scalar(select(AiTask.id).where((AiTask.input_asset_id == asset_id) | (AiTask.output_asset_id == asset_id)).limit(1))
+    )
+    if references is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="asset_in_use")
+    storage_path = Path(asset.storage_path)
+    content_hash = asset.content_hash
     db.delete(asset)
     db.commit()
+    if db.scalar(select(Asset.id).where(Asset.content_hash == content_hash).limit(1)) is None:
+        storage_path.unlink(missing_ok=True)
 
 
 def _get_owned_import_job(import_id: str, user: LocalUser, db: Session) -> ImportJob:
