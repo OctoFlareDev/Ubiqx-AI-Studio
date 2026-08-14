@@ -1245,6 +1245,8 @@ def create_ai_task(
     input_asset = get_asset(payload.input_asset_id, user, db)
     if input_asset.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="asset_not_found")
+    if input_asset.media_type not in {"image/png", "image/jpeg", "image/webp"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="unsupported_ai_input_type")
     estimate = _estimate_ai_usage(input_asset, payload)
     active_tasks = db.scalar(
         select(func.count(AiTask.id))

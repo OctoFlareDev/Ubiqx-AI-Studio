@@ -251,10 +251,8 @@ def test_unsupported_ai_input_fails_cleanly(
             "options": {},
         },
     )
-    task = _wait_for_terminal(client, auth_headers, response.json()["id"])
-    assert task["status"] == "failed"
-    assert task["retry_count"] == 0
-    assert task["last_error"] == "unsupported_ai_input_type"
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "unsupported_ai_input_type"
 
 
 def test_unregistered_ai_provider_is_rejected_at_creation(
