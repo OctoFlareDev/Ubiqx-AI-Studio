@@ -46,3 +46,19 @@ def test_project_validation(client: TestClient, auth_headers: dict[str, str]) ->
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "validation_error"
 
+
+def test_project_names_must_not_be_blank(client: TestClient, auth_headers: dict[str, str]) -> None:
+    create_response = client.post("/api/v1/projects", headers=auth_headers, json={"name": "   "})
+    assert create_response.status_code == 400
+
+    project = client.post(
+        "/api/v1/projects",
+        headers=auth_headers,
+        json={"name": "Valid Name"},
+    ).json()
+    update_response = client.patch(
+        f"/api/v1/projects/{project['id']}",
+        headers=auth_headers,
+        json={"name": "\t"},
+    )
+    assert update_response.status_code == 400

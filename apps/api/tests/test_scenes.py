@@ -157,3 +157,27 @@ def test_scene_root_cannot_be_mutated_or_deleted(
     )
     assert root.status_code == 200
     assert root.json()["name"] == "Root"
+
+
+def test_scene_node_names_must_not_be_blank(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project = client.post(
+        "/api/v1/projects",
+        headers=auth_headers,
+        json={"name": "Node Names"},
+    ).json()
+    scene = client.get(f"/api/v1/projects/{project['id']}/scene", headers=auth_headers).json()
+    create_url = f"/api/v1/projects/{project['id']}/scene/nodes"
+
+    create_response = client.post(create_url, headers=auth_headers, json={"name": "  "})
+    assert create_response.status_code == 400
+
+    node = client.post(create_url, headers=auth_headers, json={"name": "Valid"}).json()
+    update_response = client.patch(
+        f"/api/v1/scenes/{scene['id']}/nodes/{node['id']}",
+        headers=auth_headers,
+        json={"name": "\n"},
+    )
+    assert update_response.status_code == 400

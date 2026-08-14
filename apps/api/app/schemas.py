@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ORMModel(BaseModel):
@@ -58,10 +58,28 @@ class ProjectCreate(BaseModel):
     width: float = Field(default=1920, ge=1, le=4096)
     height: float = Field(default=1080, ge=1, le=4096)
 
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name_must_not_be_blank")
+        return normalized
+
 
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=160)
     last_autosaved_at: datetime | None = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name_must_not_be_blank")
+        return normalized
 
 
 class ProjectRead(ORMModel):
@@ -118,8 +136,16 @@ class SceneNodeCreate(BaseModel):
     parent_id: str | None = None
     type: Literal["group", "layer", "text", "image", "shape"] = "layer"
     name: str = Field(default="Layer", min_length=1, max_length=160)
-    transform: Transform = Transform()
+    transform: Transform = Field(default_factory=Transform)
     opacity: float = Field(default=1, ge=0, le=1)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name_must_not_be_blank")
+        return normalized
 
 
 class SceneNodeUpdate(BaseModel):
@@ -128,6 +154,16 @@ class SceneNodeUpdate(BaseModel):
     locked: bool | None = None
     opacity: float | None = Field(default=None, ge=0, le=1)
     transform: Transform | None = None
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name_must_not_be_blank")
+        return normalized
 
 
 class SceneNodeMove(BaseModel):
