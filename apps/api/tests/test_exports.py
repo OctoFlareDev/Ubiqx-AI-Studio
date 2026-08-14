@@ -187,6 +187,47 @@ def test_exports_keep_immutable_job_outputs(
         db.close()
 
 
+def test_export_omits_orphaned_nodes_with_warning(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    scene = client.get(f"/api/v1/projects/{project_id}/scene", headers=auth_headers).json()
+    valid = client.post(
+        f"/api/v1/projects/{project_id}/scene/nodes",
+        headers=auth_headers,
+        json={"type": "shape", "name": "Visible"},
+    )
+    assert valid.status_code == 201
+
+    db = SessionLocal()
+    try:
+        db.add(
+            SceneNode(
+                id="orphan-node",
+                scene_id=scene["id"],
+                parent_id="missing-parent",
+                type="shape",
+                name="Orphan",
+                transform={"x": 0, "y": 0, "width": 10, "height": 10},
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/exports",
+        headers=auth_headers,
+        json={"target": "html5"},
+    )
+    assert response.status_code == 201
+    job = _wait_for_terminal(client, auth_headers, f"/api/v1/exports/{response.json()['id']}")
+    assert job["status"] == "succeeded"
+    assert any(warning["code"] == "orphaned_node_omitted" for warning in job["warnings"])
+    assert job["manifest"]["validation"]["node_count"] == 1
+
+
 def test_empty_scene_cannot_export(
     client: TestClient,
     auth_headers: dict[str, str],

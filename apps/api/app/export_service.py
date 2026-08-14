@@ -189,11 +189,25 @@ class HTML5ExportService:
                 .order_by(SceneNode.order_index, SceneNode.created_at)
             ).all()
         )
-        exportable_nodes = [node for node in nodes if node.type != "root"]
+        warnings: list[dict] = []
+        reachable_ids = self._reachable_node_ids(nodes, scene.root_node_id)
+        exportable_nodes = [
+            node for node in nodes if node.type != "root" and node.id in reachable_ids
+        ]
+        omitted_nodes = [
+            node for node in nodes if node.type != "root" and node.id not in reachable_ids
+        ]
+        warnings.extend(
+            _warning(
+                "orphaned_node_omitted",
+                "A node is not reachable from the scene root and was omitted from the export.",
+                node.name,
+            )
+            for node in omitted_nodes
+        )
         if not exportable_nodes:
             raise ExportFailure("scene_empty")
 
-        warnings: list[dict] = []
         asset_ids = {node.asset_id for node in exportable_nodes if node.asset_id}
         assets = list(self.db.scalars(select(Asset).where(Asset.id.in_(asset_ids))).all()) if asset_ids else []
         assets_by_id = {asset.id: asset for asset in assets}
@@ -245,7 +259,8 @@ class HTML5ExportService:
                 }
             )
 
-        bounds = _content_bounds(nodes, scene.root_node_id)
+        export_nodes = [node for node in nodes if node.type == "root" or node.id in reachable_ids]
+        bounds = _content_bounds(export_nodes, scene.root_node_id)
         if bounds is None:
             origin_x, origin_y = 0.0, 0.0
             view_width, view_height = float(scene.width), float(scene.height)
@@ -365,6 +380,34 @@ class HTML5ExportService:
         self._write_zip(package_dir, package_path)
         self._validate_package(package_path, manifest, scene_data)
         return package_path, export_dir, manifest, warnings
+
+    def _reachable_node_ids(self, nodes: list[SceneNode], root_node_id: str | None) -> set[str]:
+        if root_node_id is None or not any(node.id == root_node_id for node in nodes):
+            raise ExportFailure("root_node_missing")
+        children: dict[str, list[SceneNode]] = {}
+        for node in nodes:
+            if node.type == "root":
+                continue
+            children.setdefault(node.parent_id or root_node_id, []).append(node)
+
+        reachable: set[str] = set()
+        visiting: set[str] = set()
+
+        def walk(parent_id: str) -> None:
+            if parent_id in visiting:
+                raise ExportFailure("scene_graph_cycle")
+            visiting.add(parent_id)
+            for child in children.get(parent_id, []):
+                if child.id in visiting:
+                    raise ExportFailure("scene_graph_cycle")
+                if child.id in reachable:
+                    continue
+                reachable.add(child.id)
+                walk(child.id)
+            visiting.discard(parent_id)
+
+        walk(root_node_id)
+        return reachable
 
     def _set_manifest_integrity(self, manifest: dict) -> None:
         manifest.pop("manifest_integrity", None)
