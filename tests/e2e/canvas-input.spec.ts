@@ -10,6 +10,7 @@ test('trackpad two-finger scroll pans, ctrl+wheel zooms', async ({ page }) => {
   await page.getByRole('button', { name: 'New project' }).first().click()
   await page.getByLabel('New project name').fill(projectName)
   await page.getByRole('button', { name: 'Create' }).click()
+  await expect(page.getByRole('heading', { name: projectName })).toBeVisible({ timeout: 15000 })
 
   const fixture = path.join(process.cwd(), 'apps/api/tests/fixtures/transparent.png')
   await page.locator('input[type="file"]').setInputFiles(fixture)

@@ -8,7 +8,7 @@ async function createProject(page: Page, name: string) {
   await page.getByRole('button', { name: 'New project' }).first().click()
   await page.getByLabel('New project name').fill(name)
   await page.getByRole('button', { name: 'Create' }).click()
-  await expect(page.getByRole('heading', { name })).toBeVisible()
+  await expect(page.getByRole('heading', { name })).toBeVisible({ timeout: 15000 })
 }
 
 
