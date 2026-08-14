@@ -258,6 +258,7 @@ class HTML5ExportService:
         scene_data = {
             "version": 1,
             "target": "html5",
+            "project_name": project.name,
             "scene": {
                 "id": scene.id,
                 "width": view_width,
@@ -561,6 +562,8 @@ class HTML5ExportService:
 
 
 def project_name_from_data(scene_data: dict) -> str:
+    if scene_data.get("project_name"):
+        return str(scene_data["project_name"])
     metadata = (scene_data.get("scene") or {}).get("metadata") or {}
     return str(metadata.get("source_name") or "Ubiqx HTML5 Export")
 

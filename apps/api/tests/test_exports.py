@@ -118,6 +118,41 @@ def test_export_imported_scene_as_html5_package(
     assert "HUD" in preview.text
 
 
+def test_export_title_uses_project_name(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    rename = client.patch(
+        f"/api/v1/projects/{project_id}",
+        headers=auth_headers,
+        json={"name": "Project Display Name"},
+    )
+    assert rename.status_code == 200
+    node = client.post(
+        f"/api/v1/projects/{project_id}/scene/nodes",
+        headers=auth_headers,
+        json={"type": "shape", "name": "Panel"},
+    )
+    assert node.status_code == 201
+
+    response = client.post(
+        f"/api/v1/projects/{project_id}/exports",
+        headers=auth_headers,
+        json={"target": "html5"},
+    )
+    assert response.status_code == 201
+    job = _wait_for_terminal(client, auth_headers, f"/api/v1/exports/{response.json()['id']}")
+    assert job["status"] == "succeeded"
+
+    preview = client.get(
+        f"/api/v1/exports/{response.json()['id']}/preview",
+        headers=auth_headers,
+    )
+    assert preview.status_code == 200
+    assert "<title>Project Display Name</title>" in preview.text
+
+
 def test_empty_scene_cannot_export(
     client: TestClient,
     auth_headers: dict[str, str],
