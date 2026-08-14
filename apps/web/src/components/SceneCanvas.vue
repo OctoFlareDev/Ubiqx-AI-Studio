@@ -34,6 +34,7 @@ const canvasKit = shallowRef<CanvasKit | null>(null)
 const surface = shallowRef<SkSurface | null>(null)
 const canvasError = ref<string | null>(null)
 const imageError = ref<string | null>(null)
+const imagesReady = ref(false)
 const zoom = ref(1)
 const pan = ref({ x: 0, y: 0 })
 const spacePressed = ref(false)
@@ -149,22 +150,27 @@ function resizeCanvas() {
 async function loadImages() {
   const ck = canvasKit.value
   if (!ck) return
+  imagesReady.value = false
   imageError.value = null
-  for (const node of nodes.value) {
-    if (!node.asset_id || images.has(node.asset_id)) continue
-    const asset = studio.assets.find((item) => item.id === node.asset_id)
-    if (!asset) continue
-    try {
-      const blob = await api.getAssetContent(asset.id)
-      const bytes = new Uint8Array(await blob.arrayBuffer())
-      const image = ck.MakeImageFromEncoded(bytes)
-      if (image) images.set(asset.id, image)
-      else imageError.value = 'One or more asset previews could not be decoded.'
-    } catch {
-      imageError.value = 'One or more asset previews could not be loaded.'
+  try {
+    for (const node of nodes.value) {
+      if (!node.asset_id || images.has(node.asset_id)) continue
+      const asset = studio.assets.find((item) => item.id === node.asset_id)
+      if (!asset) continue
+      try {
+        const blob = await api.getAssetContent(asset.id)
+        const bytes = new Uint8Array(await blob.arrayBuffer())
+        const image = ck.MakeImageFromEncoded(bytes)
+        if (image) images.set(asset.id, image)
+        else imageError.value = 'One or more asset previews could not be decoded.'
+      } catch {
+        imageError.value = 'One or more asset previews could not be loaded.'
+      }
     }
+  } finally {
+    imagesReady.value = true
+    scheduleDraw()
   }
-  scheduleDraw()
 }
 
 function retryImageLoads() {
@@ -742,6 +748,7 @@ function handleKeyUp(event: KeyboardEvent) {
       :data-zoom="zoom"
       :data-pan-x="pan.x"
       :data-pan-y="pan.y"
+      :data-images-ready="imagesReady ? 'true' : 'false'"
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
