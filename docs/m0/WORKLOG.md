@@ -7,4 +7,10 @@
 - Started the monorepo walking skeleton with FastAPI and Vue/Vite.
 - Added project, asset, scene, and auth groundwork.
 - Installed dependencies and generated the committed OpenAPI artifact.
-- Passed backend unit/integration tests, front end typecheck/build, and Playwright smoke test.
+- Passed backend unit/integration tests and front end typecheck/build. The
+  Playwright smoke path is checked into the repository; local execution is
+  pending the Chromium browser install.
+
+## Human checkpoint
+
+Pending human review; no sign-off has been recorded yet.

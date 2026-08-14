@@ -1,6 +1,6 @@
 # M6 Quality and Ops Plan
 
-Status: In progress
+Status: Ready for human checkpoint
 
 ## Goal
 

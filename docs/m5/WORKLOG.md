@@ -14,3 +14,7 @@
 - Regenerated and committed `packages/contracts/openapi.json`.
 - Added contract drift, scope-enforcement, and rate-limit tests (34 tests green).
 - Updated `API-CONTRACT.md` with API key routes, scopes, and rate limiting.
+
+## Human checkpoint
+
+Pending human review; no sign-off has been recorded yet.

@@ -1,6 +1,6 @@
 # M3 HTML5 Export Plan
 
-Status: In progress
+Status: Ready for human checkpoint
 
 ## Goal
 

@@ -10,3 +10,7 @@
 - Added export success, empty-scene, and warning-report tests.
 - Regenerated the OpenAPI contract.
 - Installed a temporary Python 3.12 environment for local verification.
+
+## Human checkpoint
+
+Pending human review; no sign-off has been recorded yet.

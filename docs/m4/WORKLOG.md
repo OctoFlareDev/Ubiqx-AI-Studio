@@ -9,3 +9,7 @@
 - Wired studio AI actions for raster assets.
 - Added success, cancellation, retry, and unsupported-input tests.
 - Regenerated the OpenAPI contract.
+
+## Human checkpoint
+
+Pending human review; no sign-off has been recorded yet.

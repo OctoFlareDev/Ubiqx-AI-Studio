@@ -10,10 +10,12 @@ Status: Ready for human checkpoint
 - `scripts/backup.py backup/restore` snapshots SQLite + assets; `test_ops.py` covers round-trip and path-traversal rejection.
 - Performance smoke tests assert 500-node list and 300-node export stay within budgets.
 - Contract tests assert drift detection, reproducibility, and that documented resources exist.
-- Visual regression scaffolding captures imported/selected states; pixel baselines are deferred to a vision model.
+- Visual regression scaffolding captures imported/selected states; pixel
+  baselines and cross-browser coverage remain pending.
 - `DEPLOYMENT.md` documents run, readiness, logging, backup, restore, and verification.
 
 ## Next
 
-- Vision-model review of `test-results/visual/*.png` and establishment of pixel baselines.
+- Install the Playwright browser locally, review `test-results/visual/*.png`,
+  and establish pixel baselines.
 - Human review of security findings and the runbook.

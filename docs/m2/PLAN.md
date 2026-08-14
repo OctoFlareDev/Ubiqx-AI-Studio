@@ -1,6 +1,6 @@
 # M2 Scene Graph and Canvas Plan
 
-Status: In progress
+Status: Ready for human checkpoint
 
 ## Goal
 

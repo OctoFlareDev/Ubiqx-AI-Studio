@@ -1,6 +1,6 @@
 # M5 Agent REST API Plan
 
-Status: In progress
+Status: Ready for human checkpoint
 
 ## Goal
 

@@ -10,3 +10,6 @@
 - Wired the studio "Import as scene" action with polling.
 - Regenerated the OpenAPI contract.
 
+## Human checkpoint
+
+Pending human review; no sign-off has been recorded yet.

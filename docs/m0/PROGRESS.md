@@ -11,7 +11,8 @@ Status: Ready for human checkpoint
 - Dependencies are installed.
 - Backend tests pass.
 - Front end typecheck and production build pass.
-- Playwright smoke test passes against the live local services.
+- Playwright smoke coverage is present; local execution still requires the
+  Chromium browser binary, while CI installs it explicitly.
 
 ## Next
 

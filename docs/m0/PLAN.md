@@ -1,6 +1,6 @@
 # M0 Walking Skeleton Plan
 
-Status: In progress
+Status: Ready for human checkpoint
 
 ## Goal
 

@@ -10,3 +10,7 @@
 - Added backend node property round-trip and CanvasKit drag e2e coverage.
 - Diagnosed and fixed CanvasKit binding failures caused by Vue wrapping WASM objects in reactive proxies.
 - Ran API tests, typecheck, web build, and Playwright verification.
+
+## Human checkpoint
+
+Pending human review; no sign-off has been recorded yet.
