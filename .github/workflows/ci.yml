@@ -31,6 +31,14 @@ jobs:
       - name: Run API tests
         run: python -m pytest apps/api/tests -q
 
+      - name: Verify OpenAPI contract is current
+        run: |
+          python scripts/generate_contract.py
+          git diff --exit-code -- packages/contracts/openapi.json
+
+      - name: Check Python dependency consistency
+        run: python -m pip check
+
       - name: Typecheck front end
         run: npm run typecheck
 
@@ -43,3 +51,13 @@ jobs:
       - name: Run Playwright smoke test
         run: bash scripts/run-e2e.sh
 
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Scan repository for leaked secrets
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
