@@ -38,6 +38,7 @@ def test_project_crud(client: TestClient, auth_headers: dict[str, str]) -> None:
 
     get_response = client.get(f"/api/v1/projects/{project_id}", headers=auth_headers)
     assert get_response.status_code == 404
+    assert get_response.json()["error"]["code"] == "project_not_found"
 
 
 def test_project_requires_auth(client: TestClient) -> None:

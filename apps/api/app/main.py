@@ -331,6 +331,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     if isinstance(exc.detail, str) and exc.status_code in {
         status.HTTP_400_BAD_REQUEST,
         status.HTTP_403_FORBIDDEN,
+        status.HTTP_404_NOT_FOUND,
         status.HTTP_409_CONFLICT,
         status.HTTP_429_TOO_MANY_REQUESTS,
     }:
