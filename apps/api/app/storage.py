@@ -162,11 +162,12 @@ class AssetStore:
         declared_aliases = {
             ".jpg": {"image/jpeg", "image/jpg"},
             ".jpeg": {"image/jpeg", "image/jpg"},
-            ".psd": {"image/vnd.adobe.photoshop"},
-            ".psb": {"image/vnd.adobe.photoshop"},
+            ".psd": {"image/vnd.adobe.photoshop", "application/x-photoshop"},
+            ".psb": {"image/vnd.adobe.photoshop", "application/x-photoshop"},
         }
         allowed_declared_types = declared_aliases.get(extension, {expected_type})
-        if declared_type and declared_type not in allowed_declared_types:
+        unspecified_declared_types = {"", "application/octet-stream"}
+        if declared_type not in unspecified_declared_types and declared_type not in allowed_declared_types:
             tmp_path.unlink(missing_ok=True)
             raise ValueError("invalid_media_type")
 

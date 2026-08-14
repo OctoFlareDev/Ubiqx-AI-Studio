@@ -1,4 +1,5 @@
 import io
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 from PIL import Image
@@ -97,6 +98,21 @@ def test_upload_rejects_declared_mime_mismatch(
     )
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_media_type"
+
+
+def test_upload_accepts_generic_browser_mime_when_signature_matches(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project_id = _create_project(client, auth_headers)
+    fixture = Path(__file__).parent / "fixtures" / "basic.psd"
+    response = client.post(
+        f"/api/v1/projects/{project_id}/assets",
+        headers=auth_headers,
+        files={"file": ("basic.psd", fixture.read_bytes(), "application/x-photoshop")},
+    )
+    assert response.status_code == 201
+    assert response.json()["media_type"] == "image/vnd.adobe.photoshop"
 
 
 def test_upload_records_raster_dimensions_and_metadata(
