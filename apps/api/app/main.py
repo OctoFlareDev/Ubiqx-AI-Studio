@@ -9,13 +9,14 @@ from datetime import datetime, timezone
 from ipaddress import ip_address
 from pathlib import Path
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from .config import settings
 from .db import get_db, init_db
@@ -158,6 +159,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     if isinstance(exc.detail, str) and exc.status_code in {
         status.HTTP_400_BAD_REQUEST,
         status.HTTP_403_FORBIDDEN,
+        status.HTTP_409_CONFLICT,
     }:
         code = exc.detail
     else:
@@ -171,6 +173,24 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": {"code": code, "message": str(exc.detail), "request_id": _request_id(request)}},
+    )
+
+
+@app.exception_handler(StaleDataError)
+async def stale_data_exception_handler(request: Request, exc: StaleDataError):
+    request_logger.warning(
+        "stale_mutation",
+        extra={"request_id": _request_id(request), "exception_type": type(exc).__name__},
+    )
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={
+            "error": {
+                "code": "stale_version",
+                "message": "The resource changed before this mutation was saved.",
+                "request_id": _request_id(request),
+            }
+        },
     )
 
 
@@ -220,6 +240,33 @@ def _cursor_offset(cursor: str | None) -> int:
     if offset < 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_cursor")
     return offset
+
+
+def _if_match_version(value: str | None) -> int | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    if normalized == "*":
+        return None
+    if len(normalized) >= 2 and normalized[0] == '"' and normalized[-1] == '"':
+        normalized = normalized[1:-1]
+    try:
+        version = int(normalized)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_if_match") from None
+    if version < 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid_if_match")
+    return version
+
+
+def _check_if_match(entity: object, value: str | None) -> None:
+    expected = _if_match_version(value)
+    if expected is not None and getattr(entity, "version", None) != expected:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="stale_version")
+
+
+def _set_etag(response: Response, entity: object) -> None:
+    response.headers["ETag"] = f'"{getattr(entity, "version", 1)}"'
 
 
 def _get_scene_node_for_parent(db: Session, scene_id: str, parent_id: str) -> SceneNode:
@@ -402,6 +449,7 @@ def list_projects(
 @app.post("/api/v1/projects", response_model=ProjectRead, status_code=status.HTTP_201_CREATED)
 def create_project(
     payload: ProjectCreate,
+    response: Response,
     user: LocalUser = Depends(require_scope("projects:write")),
     db: Session = Depends(get_db),
 ) -> Project:
@@ -433,26 +481,33 @@ def create_project(
     db.add_all([project, scene, root])
     db.commit()
     db.refresh(project)
+    _set_etag(response, project)
     return project
 
 
 @app.get("/api/v1/projects/{project_id}", response_model=ProjectRead)
 def get_project(
     project_id: str,
+    response: Response,
     user: LocalUser = Depends(require_scope("projects:read")),
     db: Session = Depends(get_db),
 ) -> Project:
-    return get_owned_project(project_id, user, db)
+    project = get_owned_project(project_id, user, db)
+    _set_etag(response, project)
+    return project
 
 
 @app.patch("/api/v1/projects/{project_id}", response_model=ProjectRead)
 def update_project(
     project_id: str,
     payload: ProjectUpdate,
+    response: Response,
+    if_match: str | None = Header(default=None, alias="If-Match"),
     user: LocalUser = Depends(require_scope("projects:write")),
     db: Session = Depends(get_db),
 ) -> Project:
     project = get_owned_project(project_id, user, db)
+    _check_if_match(project, if_match)
     if payload.name is not None:
         project.name = payload.name.strip()
     if payload.last_autosaved_at is not None:
@@ -462,46 +517,57 @@ def update_project(
     project.updated_at = _now()
     db.commit()
     db.refresh(project)
+    _set_etag(response, project)
     return project
 
 
 @app.post("/api/v1/projects/{project_id}/archive", response_model=ProjectRead)
 def archive_project(
     project_id: str,
+    response: Response,
+    if_match: str | None = Header(default=None, alias="If-Match"),
     user: LocalUser = Depends(require_scope("projects:write")),
     db: Session = Depends(get_db),
 ) -> Project:
     project = get_owned_project(project_id, user, db)
+    _check_if_match(project, if_match)
     project.status = "archived"
     project.updated_at = _now()
     db.commit()
     db.refresh(project)
+    _set_etag(response, project)
     return project
 
 
 @app.post("/api/v1/projects/{project_id}/restore", response_model=ProjectRead)
 def restore_project(
     project_id: str,
+    response: Response,
+    if_match: str | None = Header(default=None, alias="If-Match"),
     user: LocalUser = Depends(require_scope("projects:write")),
     db: Session = Depends(get_db),
 ) -> Project:
     project = db.get(Project, project_id)
     if project is None or project.user_id != user.id or project.status == "deleted":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project_not_found")
+    _check_if_match(project, if_match)
     project.status = "active"
     project.updated_at = _now()
     db.commit()
     db.refresh(project)
+    _set_etag(response, project)
     return project
 
 
 @app.delete("/api/v1/projects/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_project(
     project_id: str,
+    if_match: str | None = Header(default=None, alias="If-Match"),
     user: LocalUser = Depends(require_scope("projects:write")),
     db: Session = Depends(get_db),
 ) -> None:
     project = get_owned_project(project_id, user, db)
+    _check_if_match(project, if_match)
     project.status = "deleted"
     project.updated_at = _now()
     db.commit()
@@ -510,6 +576,7 @@ def delete_project(
 @app.get("/api/v1/projects/{project_id}/scene", response_model=SceneRead)
 def get_project_scene(
     project_id: str,
+    response: Response,
     user: LocalUser = Depends(require_scope("scenes:read")),
     db: Session = Depends(get_db),
 ) -> Scene:
@@ -519,6 +586,7 @@ def get_project_scene(
     scene = db.get(Scene, project.root_scene_id)
     if scene is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="scene_not_found")
+    _set_etag(response, scene)
     return scene
 
 
@@ -541,6 +609,7 @@ def list_scene_nodes(
 def create_scene_node(
     project_id: str,
     payload: SceneNodeCreate,
+    response: Response,
     user: LocalUser = Depends(require_scope("scenes:write")),
     db: Session = Depends(get_db),
 ) -> SceneNode:
@@ -571,6 +640,7 @@ def create_scene_node(
     db.add(node)
     db.commit()
     db.refresh(node)
+    _set_etag(response, node)
     return node
 
 
@@ -578,6 +648,7 @@ def create_scene_node(
 def get_scene_node(
     scene_id: str,
     node_id: str,
+    response: Response,
     user: LocalUser = Depends(require_scope("scenes:read")),
     db: Session = Depends(get_db),
 ) -> SceneNode:
@@ -590,6 +661,7 @@ def get_scene_node(
     project = db.get(Project, scene.project_id)
     if project is None or project.user_id != user.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="project_not_found")
+    _set_etag(response, node)
     return node
 
 
@@ -598,11 +670,14 @@ def update_scene_node(
     scene_id: str,
     node_id: str,
     payload: SceneNodeUpdate,
+    response: Response,
+    if_match: str | None = Header(default=None, alias="If-Match"),
     user: LocalUser = Depends(require_scope("scenes:write")),
     db: Session = Depends(get_db),
 ) -> SceneNode:
-    node = get_scene_node(scene_id, node_id, user, db)
+    node = get_scene_node(scene_id, node_id, Response(), user, db)
     _ensure_mutable_scene_node(db, scene_id, node)
+    _check_if_match(node, if_match)
     if payload.name is not None:
         node.name = payload.name.strip()
     if payload.visible is not None:
@@ -627,6 +702,7 @@ def update_scene_node(
     node.updated_at = _now()
     db.commit()
     db.refresh(node)
+    _set_etag(response, node)
     return node
 
 
@@ -634,11 +710,13 @@ def update_scene_node(
 def delete_scene_node(
     scene_id: str,
     node_id: str,
+    if_match: str | None = Header(default=None, alias="If-Match"),
     user: LocalUser = Depends(require_scope("scenes:write")),
     db: Session = Depends(get_db),
 ) -> None:
-    node = get_scene_node(scene_id, node_id, user, db)
+    node = get_scene_node(scene_id, node_id, Response(), user, db)
     _ensure_mutable_scene_node(db, scene_id, node)
+    _check_if_match(node, if_match)
     db.delete(node)
     db.commit()
 
@@ -648,11 +726,14 @@ def move_scene_node(
     scene_id: str,
     node_id: str,
     payload: SceneNodeMove,
+    response: Response,
+    if_match: str | None = Header(default=None, alias="If-Match"),
     user: LocalUser = Depends(require_scope("scenes:write")),
     db: Session = Depends(get_db),
 ) -> SceneNode:
-    node = get_scene_node(scene_id, node_id, user, db)
+    node = get_scene_node(scene_id, node_id, Response(), user, db)
     _ensure_mutable_scene_node(db, scene_id, node)
+    _check_if_match(node, if_match)
     if payload.parent_id is not None:
         _validate_scene_parent(db, scene_id, payload.parent_id, node_id=node.id)
         node.parent_id = payload.parent_id
@@ -661,6 +742,7 @@ def move_scene_node(
     node.updated_at = _now()
     db.commit()
     db.refresh(node)
+    _set_etag(response, node)
     return node
 
 

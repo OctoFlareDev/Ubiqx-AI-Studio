@@ -49,7 +49,10 @@ class Project(Base):
     status: Mapped[str] = mapped_column(String(24), default="active", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     last_autosaved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    __mapper_args__ = {"version_id_col": version}
 
     scenes: Mapped[list[Scene]] = relationship(back_populates="project", cascade="all, delete-orphan")
     assets: Mapped[list[Asset]] = relationship(back_populates="project", cascade="all, delete-orphan")
@@ -65,7 +68,10 @@ class Scene(Base):
     height: Mapped[float] = mapped_column(Float, default=1080)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     metadata_: Mapped[dict] = mapped_column("metadata", JSON, default=dict)
+
+    __mapper_args__ = {"version_id_col": version}
 
     project: Mapped[Project] = relationship(back_populates="scenes")
     nodes: Mapped[list[SceneNode]] = relationship(back_populates="scene", cascade="all, delete-orphan")
@@ -90,6 +96,9 @@ class SceneNode(Base):
     order_index: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+    __mapper_args__ = {"version_id_col": version}
 
     scene: Mapped[Scene] = relationship(back_populates="nodes")
 

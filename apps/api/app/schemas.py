@@ -93,6 +93,7 @@ class ProjectRead(ORMModel):
     status: str
     created_at: datetime
     updated_at: datetime
+    version: int
     last_autosaved_at: datetime | None
 
 
@@ -124,6 +125,7 @@ class SceneRead(ORMModel):
     metadata: dict[str, Any] = Field(validation_alias="metadata_", serialization_alias="metadata")
     created_at: datetime
     updated_at: datetime
+    version: int
 
 
 class Transform(BaseModel):
@@ -200,6 +202,7 @@ class SceneNodeRead(ORMModel):
     order_index: int
     created_at: datetime
     updated_at: datetime
+    version: int
 
 
 class ImportCreate(BaseModel):

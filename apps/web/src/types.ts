@@ -13,6 +13,7 @@ export interface Project {
   status: ProjectStatus
   created_at: string
   updated_at: string
+  version: number
   last_autosaved_at: string | null
 }
 
@@ -39,6 +40,7 @@ export interface Scene {
   metadata: Record<string, unknown>
   created_at: string
   updated_at: string
+  version: number
 }
 
 export interface SceneNode {
@@ -58,6 +60,7 @@ export interface SceneNode {
   order_index: number
   created_at: string
   updated_at: string
+  version: number
 }
 
 export interface ImportJob {

@@ -89,3 +89,31 @@ def test_project_list_supports_cursor_pagination(client: TestClient, auth_header
     invalid = client.get("/api/v1/projects?cursor=not-a-cursor", headers=auth_headers)
     assert invalid.status_code == 400
     assert invalid.json()["error"]["code"] == "invalid_cursor"
+
+
+def test_project_updates_require_a_fresh_version_when_supplied(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    created = client.post("/api/v1/projects", headers=auth_headers, json={"name": "Versioned Project"})
+    assert created.status_code == 201
+    project = created.json()
+    assert project["version"] == 1
+    assert created.headers["etag"] == '"1"'
+
+    updated = client.patch(
+        f"/api/v1/projects/{project['id']}",
+        headers={**auth_headers, "If-Match": '"1"'},
+        json={"name": "Fresh Update"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["version"] == 2
+    assert updated.headers["etag"] == '"2"'
+
+    stale = client.patch(
+        f"/api/v1/projects/{project['id']}",
+        headers={**auth_headers, "If-Match": '"1"'},
+        json={"name": "Stale Update"},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "stale_version"

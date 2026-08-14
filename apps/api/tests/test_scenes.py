@@ -67,6 +67,39 @@ def test_scene_node_properties_round_trip(
     assert body["transform"]["rotation"] == 15
 
 
+def test_scene_node_updates_require_a_fresh_version_when_supplied(
+    client: TestClient,
+    auth_headers: dict[str, str],
+) -> None:
+    project = client.post("/api/v1/projects", headers=auth_headers, json={"name": "Node Versions"}).json()
+    scene = client.get(f"/api/v1/projects/{project['id']}/scene", headers=auth_headers).json()
+    node = client.post(
+        f"/api/v1/projects/{project['id']}/scene/nodes",
+        headers=auth_headers,
+        json={"parent_id": scene["root_node_id"], "name": "Versioned Node"},
+    )
+    assert node.status_code == 201
+    node_body = node.json()
+    assert node_body["version"] == 1
+    assert node.headers["etag"] == '"1"'
+
+    updated = client.patch(
+        f"/api/v1/scenes/{scene['id']}/nodes/{node_body['id']}",
+        headers={**auth_headers, "If-Match": '"1"'},
+        json={"name": "Fresh Node Update"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["version"] == 2
+
+    stale = client.patch(
+        f"/api/v1/scenes/{scene['id']}/nodes/{node_body['id']}",
+        headers={**auth_headers, "If-Match": '"1"'},
+        json={"name": "Stale Node Update"},
+    )
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "stale_version"
+
+
 def test_scene_node_parent_invariants_are_enforced(
     client: TestClient,
     auth_headers: dict[str, str],

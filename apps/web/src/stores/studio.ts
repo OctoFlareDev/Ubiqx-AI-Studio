@@ -95,22 +95,26 @@ export const useStudioStore = defineStore('studio', {
       }
     },
     async renameProject(projectId: string, name: string) {
-      const project = await api.updateProject(projectId, { name })
+      const current = this.projects.find((item) => item.id === projectId)
+      const project = await api.updateProject(projectId, { name }, current?.version)
       const index = this.projects.findIndex((item) => item.id === projectId)
       if (index >= 0) this.projects[index] = project
       this.error = null
     },
     async archiveProject(projectId: string) {
-      await api.archiveProject(projectId)
+      const current = this.projects.find((item) => item.id === projectId)
+      await api.archiveProject(projectId, current?.version)
       await this.loadProjects()
       if (this.currentProjectId === projectId) this.currentProjectId = null
     },
     async restoreProject(projectId: string) {
-      await api.restoreProject(projectId)
+      const current = this.projects.find((item) => item.id === projectId)
+      await api.restoreProject(projectId, current?.version)
       await this.loadProjects()
     },
     async deleteProject(projectId: string) {
-      await api.deleteProject(projectId)
+      const current = this.projects.find((item) => item.id === projectId)
+      await api.deleteProject(projectId, current?.version)
       await this.loadProjects()
       if (this.currentProjectId === projectId) this.currentProjectId = null
     },
@@ -321,9 +325,11 @@ export const useStudioStore = defineStore('studio', {
       this.saving = true
       this.error = null
       try {
-        const updated = await api.updateNode(node.scene_id, nodeId, patch)
+        const updated = await api.updateNode(node.scene_id, nodeId, patch, node.version)
         this.updateNodeLocal(nodeId, updated)
-        await api.updateProject(this.currentProjectId, {})
+        const project = await api.updateProject(this.currentProjectId, {}, this.currentProject?.version)
+        const projectIndex = this.projects.findIndex((item) => item.id === project.id)
+        if (projectIndex >= 0) this.projects[projectIndex] = project
       } catch (error) {
         this.error = toMessage(error)
         throw error
@@ -373,15 +379,18 @@ export const useStudioStore = defineStore('studio', {
         for (const node of nodes) {
           const current = this.nodes.find((item) => item.id === node.id)
           if (!current) continue
-          await api.updateNode(node.scene_id, node.id, {
+          const updated = await api.updateNode(node.scene_id, node.id, {
             name: node.name,
             visible: node.visible,
             locked: node.locked,
             opacity: node.opacity,
             transform: node.transform,
-          })
+          }, current.version)
+          this.updateNodeLocal(node.id, updated)
         }
-        await api.updateProject(this.currentProjectId, {})
+        const project = await api.updateProject(this.currentProjectId, {}, this.currentProject?.version)
+        const projectIndex = this.projects.findIndex((item) => item.id === project.id)
+        if (projectIndex >= 0) this.projects[projectIndex] = project
       } catch (error) {
         this.error = toMessage(error)
         throw error

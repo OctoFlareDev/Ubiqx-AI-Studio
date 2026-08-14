@@ -93,6 +93,10 @@ async function responseError(response: Response): Promise<ApiError> {
   )
 }
 
+function versionHeaders(version?: number): HeadersInit {
+  return version === undefined ? {} : { 'If-Match': `"${version}"` }
+}
+
 export async function ensureSession(): Promise<Profile> {
   if (accessToken) {
     try {
@@ -115,14 +119,18 @@ export const api = {
   listProjects: () => request<{ items: Project[]; next_cursor: string | null }>('/projects'),
   createProject: (payload: { name: string; width?: number; height?: number }) =>
     request<Project>('/projects', { method: 'POST', body: JSON.stringify(payload) }),
-  updateProject: (projectId: string, payload: { name?: string }) =>
-    request<Project>(`/projects/${projectId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  archiveProject: (projectId: string) =>
-    request<Project>(`/projects/${projectId}/archive`, { method: 'POST' }),
-  restoreProject: (projectId: string) =>
-    request<Project>(`/projects/${projectId}/restore`, { method: 'POST' }),
-  deleteProject: (projectId: string) =>
-    request<void>(`/projects/${projectId}`, { method: 'DELETE' }),
+  updateProject: (projectId: string, payload: { name?: string }, version?: number) =>
+    request<Project>(`/projects/${projectId}`, {
+      method: 'PATCH',
+      headers: versionHeaders(version),
+      body: JSON.stringify(payload),
+    }),
+  archiveProject: (projectId: string, version?: number) =>
+    request<Project>(`/projects/${projectId}/archive`, { method: 'POST', headers: versionHeaders(version) }),
+  restoreProject: (projectId: string, version?: number) =>
+    request<Project>(`/projects/${projectId}/restore`, { method: 'POST', headers: versionHeaders(version) }),
+  deleteProject: (projectId: string, version?: number) =>
+    request<void>(`/projects/${projectId}`, { method: 'DELETE', headers: versionHeaders(version) }),
   getScene: (projectId: string) => request<Scene>(`/projects/${projectId}/scene`),
   listNodes: (sceneId: string) => request<SceneNode[]>(`/scenes/${sceneId}/nodes`),
   createNode: (
@@ -153,7 +161,13 @@ export const api = {
       style_properties?: Record<string, unknown> | null
       effect_metadata?: Record<string, unknown> | null
     },
-  ) => request<SceneNode>(`/scenes/${sceneId}/nodes/${nodeId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+    version?: number,
+  ) =>
+    request<SceneNode>(`/scenes/${sceneId}/nodes/${nodeId}`, {
+      method: 'PATCH',
+      headers: versionHeaders(version),
+      body: JSON.stringify(payload),
+    }),
   listAssets: (projectId: string) => request<Asset[]>(`/projects/${projectId}/assets`),
   getAssetContent: (assetId: string) => requestBlob(`/assets/${assetId}/content`),
   uploadAsset: (projectId: string, file: File) => {
