@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -18,6 +19,8 @@ from .storage import AssetStore
 
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
 CANCELLATION_REQUESTS: set[str] = set()
+
+logger = logging.getLogger("ubiqx.import")
 
 
 class ImportFailure(Exception):
@@ -251,6 +254,7 @@ def run_import_job(job_id: str) -> None:
         job = db.get(ImportJob, job_id)
         if job is None or job.status in TERMINAL_STATUSES:
             return
+        logger.info("import_job_started", extra={"job_id": job_id})
         if job_id in CANCELLATION_REQUESTS:
             job.status = "cancelled"
             job.finished_at = _now()
@@ -287,6 +291,7 @@ def run_import_job(job_id: str) -> None:
         project.last_autosaved_at = _now()
         project.updated_at = _now()
         db.commit()
+        logger.info("import_job_succeeded", extra={"job_id": job_id})
     except ImportFailure as exc:
         db.rollback()
         _mark_failed(db, job_id, str(exc))
@@ -305,6 +310,7 @@ def _mark_failed(db: Session, job_id: str, error: str) -> None:
     job.status = "failed"
     job.error = error
     job.finished_at = _now()
+    logger.info("import_job_failed", extra={"job_id": job_id, "error": error})
     db.commit()
 
 

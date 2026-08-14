@@ -19,3 +19,22 @@ def test_openapi_generation_is_reproducible(client: TestClient) -> None:
     first = client.get("/openapi.json").json()
     second = client.get("/openapi.json").json()
     assert first == second
+
+
+def test_contract_covers_expected_resources(client: TestClient) -> None:
+    schema = client.get("/openapi.json").json()
+    paths = schema["paths"]
+    expected = {
+        "/api/v1/projects": {"get", "post"},
+        "/api/v1/projects/{project_id}": {"get", "patch", "delete"},
+        "/api/v1/projects/{project_id}/assets": {"get", "post"},
+        "/api/v1/projects/{project_id}/imports": {"post"},
+        "/api/v1/projects/{project_id}/exports": {"post"},
+        "/api/v1/projects/{project_id}/ai-tasks": {"get", "post"},
+        "/api/v1/api-keys": {"get", "post"},
+        "/api/v1/assets/{asset_id}/content": {"get"},
+        "/api/v1/exports/{export_id}/download": {"get"},
+    }
+    for path, methods in expected.items():
+        assert path in paths, f"contract missing path: {path}"
+        assert methods.issubset(set(paths[path])), f"contract missing methods for {path}"

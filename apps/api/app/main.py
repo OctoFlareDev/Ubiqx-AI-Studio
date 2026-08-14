@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -15,6 +18,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from .db import get_db, init_db
 from .deps import get_current_user, get_owned_project, require_scope
+from .logging import configure_logging
 from .ai_service import CANCELLATION_REQUESTS as AI_CANCELLATION_REQUESTS, run_ai_task
 from .export_service import run_export_job, scene_has_exportable_nodes
 from .import_service import CANCELLATION_REQUESTS, run_import_job
@@ -57,8 +61,12 @@ from .security import (
 from .storage import AssetStore
 
 
+request_logger = logging.getLogger("ubiqx.request")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configure_logging()
     init_db()
     yield
 
@@ -111,6 +119,23 @@ async def request_id_middleware(request: Request, call_next):
     return response
 
 
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    request_logger.info(
+        "request",
+        extra={
+            "request_id": getattr(request.state, "request_id", None),
+            "method": request.method,
+            "path": request.url.path,
+            "status": response.status_code,
+            "duration_ms": round((time.perf_counter() - start) * 1000, 2),
+        },
+    )
+    return response
+
+
 def _request_id(request: Request) -> str | None:
     return getattr(request.state, "request_id", None)
 
@@ -156,15 +181,37 @@ def _asset_read(asset: Asset) -> AssetRead:
     return AssetRead.model_validate(asset)
 
 
+def _safe_export_filename(name: str) -> str:
+    cleaned = "".join(ch for ch in str(name) if ch.isalnum() or ch in ("-", "_", " ", "."))
+    cleaned = cleaned.strip().replace(" ", "_") or "ubiqx"
+    return cleaned[:120]
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "service": "ubiqx-api"}
 
 
 @app.get("/ready")
-def ready(db: Session = Depends(get_db)) -> dict:
+def ready(db: Session = Depends(get_db)) -> JSONResponse:
     db.execute(text("SELECT 1"))
-    return {"status": "ready", "database": "ok"}
+    checks: dict[str, str] = {"database": "ok"}
+    for name, path in (
+        ("assets", settings.asset_dir),
+        ("exports", settings.export_dir),
+        ("tmp", settings.tmp_dir),
+    ):
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            checks[name] = "error"
+            continue
+        checks[name] = "ok" if os.access(path, os.W_OK) else "error"
+    ready_status = "ready" if all(value == "ok" for value in checks.values()) else "degraded"
+    return JSONResponse(
+        status_code=status.HTTP_200_OK if ready_status == "ready" else status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"status": ready_status, **checks},
+    )
 
 
 @app.get("/api/v1/health")
@@ -711,7 +758,7 @@ def download_export(
     if not package_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="export_package_missing")
     project = db.get(Project, job.project_id)
-    filename = f"{project.name if project else 'ubiqx'}.html5.zip"
+    filename = f"{_safe_export_filename(project.name if project else 'ubiqx')}.html5.zip"
     return FileResponse(package_path, media_type="application/zip", filename=filename)
 
 

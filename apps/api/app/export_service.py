@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import shutil
 import zipfile
 from datetime import datetime, timezone
@@ -17,6 +18,8 @@ from .models import Asset, ExportJob, Project, Scene, SceneNode
 
 
 TERMINAL_STATUSES = {"succeeded", "failed", "cancelled"}
+
+logger = logging.getLogger("ubiqx.export")
 
 MEDIA_EXTENSIONS = {
     "image/png": ".png",
@@ -528,6 +531,7 @@ def run_export_job(job_id: str) -> None:
         job = db.get(ExportJob, job_id)
         if job is None or job.status in TERMINAL_STATUSES:
             return
+        logger.info("export_job_started", extra={"job_id": job_id})
         job.status = "running"
         job.started_at = _now()
         db.commit()
@@ -548,6 +552,7 @@ def run_export_job(job_id: str) -> None:
         project.last_autosaved_at = _now()
         project.updated_at = _now()
         db.commit()
+        logger.info("export_job_succeeded", extra={"job_id": job_id})
     except ExportFailure as exc:
         db.rollback()
         _mark_failed(db, job_id, str(exc))
@@ -565,4 +570,5 @@ def _mark_failed(db: Session, job_id: str, error: str) -> None:
     job.status = "failed"
     job.error = error
     job.finished_at = _now()
+    logger.info("export_job_failed", extra={"job_id": job_id, "error": error})
     db.commit()

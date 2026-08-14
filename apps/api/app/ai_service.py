@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import time
 import uuid
 from collections import deque
@@ -24,6 +25,8 @@ MAX_ATTEMPTS = 3
 MAX_DIMENSION = 4096
 BACKOFF_BASE_SECONDS = 0.05
 CANCELLATION_REQUESTS: set[str] = set()
+
+logger = logging.getLogger("ubiqx.ai")
 
 
 class AiTaskFailure(Exception):
@@ -314,6 +317,7 @@ def run_ai_task(task_id: str) -> None:
         task = db.get(AiTask, task_id)
         if task is None or task.status in TERMINAL_STATUSES:
             return
+        logger.info("ai_task_started", extra={"task_id": task_id})
         if task_id in CANCELLATION_REQUESTS:
             _mark_cancelled(db, task)
             return
@@ -388,6 +392,7 @@ def run_ai_task(task_id: str) -> None:
             project.last_autosaved_at = _now()
             project.updated_at = _now()
             db.commit()
+            logger.info("ai_task_succeeded", extra={"task_id": task_id})
             return
 
         _mark_failed(db, task, input_asset=input_asset, attempts=attempts, started_at=started_at)
@@ -431,6 +436,7 @@ def _mark_failed(
     task.status = "failed"
     task.last_error = error or task.last_error or "ai_task_failed"
     task.finished_at = _now()
+    logger.info("ai_task_failed", extra={"task_id": task.id, "error": task.last_error})
     if input_asset is not None and started_at is not None:
         task.usage = _build_usage(task, input_asset, attempts, None, started_at)
     db.commit()
@@ -446,6 +452,7 @@ def _mark_cancelled(
 ) -> None:
     task.status = "cancelled"
     task.finished_at = _now()
+    logger.info("ai_task_cancelled", extra={"task_id": task.id})
     if input_asset is not None and started_at is not None:
         task.usage = _build_usage(task, input_asset, attempts, None, started_at)
     db.commit()

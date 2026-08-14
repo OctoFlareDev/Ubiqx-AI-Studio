@@ -81,21 +81,22 @@ This file records the v1 security model, operational expectations, and incident 
 
 ### Observability
 
-- Every request gets a request ID.
-- Every job and task gets a task ID.
-- Logs are structured and avoid sensitive data.
-- Health and readiness endpoints reflect real dependencies.
+- Every request gets a request ID (echoed in the `X-Request-ID` response header).
+- Every job and task gets a task ID and emits structured lifecycle log lines.
+- Logs are JSON, one object per line, and avoid sensitive data (no bodies, headers, or credentials).
+- `GET /health` is liveness; `GET /ready` checks the database and storage directory writability.
 
 ### Backup and Recovery
 
-- Back up SQLite and the asset store together.
+- Back up SQLite and the asset store together via `python scripts/backup.py backup --out <archive>`.
+- Restore with `python scripts/backup.py restore <archive>` (service stopped).
 - Restore procedure:
   1. Stop the service.
-  2. Restore SQLite.
-  3. Restore asset directory.
-  4. Verify content hashes.
-  5. Start the service.
-- Autosave revisions provide an additional short-term recovery point.
+  2. Run the restore command.
+  3. Verify `GET /ready` and project assets.
+  4. Start the service.
+- Restore rejects path-traversal archive entries.
+- See `DEPLOYMENT.md` for the full runbook.
 
 ### Deployment Readiness
 
@@ -135,10 +136,10 @@ For unexpected AI spend:
 
 Before a v1 release:
 
-- No high-severity security findings remain.
+- No high-severity security findings remain. (M6: see `SECURITY-REVIEW.md`; two low/medium issues fixed.)
 - Upload and parser paths are covered by malicious-fixture tests.
 - API keys and provider credentials are not stored in plaintext.
 - Retry and cost controls are verified.
-- Backup and restore has been tested.
-- Structured logs and readiness checks are present.
-- The OpenAPI contract and deployed API match.
+- Backup and restore has been tested. (M6: `test_ops.py` round-trip + traversal rejection.)
+- Structured logs and readiness checks are present. (M6: JSON logs + request/job IDs + `/ready` storage checks.)
+- The OpenAPI contract and deployed API match. (M6: contract drift + completeness tests.)

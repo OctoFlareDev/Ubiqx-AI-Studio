@@ -19,7 +19,7 @@ import {
   Upload,
   X,
 } from 'lucide-vue-next'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import { useStudioStore } from '@/stores/studio'
 import type { Asset, SceneNode } from '@/types'
@@ -64,10 +64,6 @@ watch(
   },
   { immediate: true },
 )
-
-onMounted(async () => {
-  if (project.value?.id) await studio.openProject(project.value.id)
-})
 
 function startRename() {
   if (!project.value) return
