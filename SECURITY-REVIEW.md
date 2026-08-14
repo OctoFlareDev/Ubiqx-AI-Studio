@@ -25,25 +25,24 @@ mitigated with a rationale. The threat model is in `SECURITY-AND-OPS.md`.
 ### 2. SVG assets served as image/svg+xml
 
 - Severity: Low (local-first).
-- Status: Mitigated.
-- Detail: SVG can contain script. Assets are served with
-  `Content-Disposition: attachment` (FileResponse default when a filename is
-  set), and the HTML5 export references SVG via `<img>` elements, where
-  embedded script does not execute.
-- Residual risk: a user who downloads an SVG asset and opens it directly in a
-  browser runs it in a local file context. Accepted for v1; a dedicated SVG
-  sanitizer can be added later.
+- Status: Fixed.
+- Detail: SVG uploads are parsed and sanitized before content-addressed
+  storage. External links, event attributes, script-like elements, and unsafe
+  styles are removed; malformed or entity-enabled documents are rejected.
+- Residual risk: the sanitizer is intentionally conservative and does not
+  promise pixel-perfect preservation of every SVG feature.
 
 ### 3. Unauthenticated bootstrap returns a wildcard key
 
 - Severity: Medium if the service is exposed beyond localhost.
-- Status: Accepted for local-first v1.
+- Status: Mitigated for local-first v1.
 - Detail: `POST /api/v1/auth/bootstrap` creates/reuses the local user and
   returns an API key with the `*` scope, with no authentication. This is the
   intended first-run experience for a local app, but it must not be reachable
   from untrusted networks.
-- Control: the service binds to localhost in development; per-key and per-IP
-  rate limits (M5) bound unauthenticated bootstrap abuse.
+- Control: the service binds to localhost in development; remote bootstrap is
+  rejected unless `UBIQX_ALLOW_REMOTE_BOOTSTRAP=1` is explicitly set, and
+  per-key/per-IP rate limits bound abuse.
 
 ### 4. Backup restore path traversal (zip-slip)
 
@@ -58,19 +57,21 @@ mitigated with a rationale. The threat model is in `SECURITY-AND-OPS.md`.
 ### 5. API key storage
 
 - Severity: n/a.
-- Status: Verified.
-- Detail: keys are stored as salted SHA-256 hashes; plaintext keys are only
-  returned once at creation. Scopes are validated against a known set and
-  enforced per route (M5).
+- Status: Fixed and verified.
+- Detail: keys are stored with a per-key random salt and PBKDF2-HMAC-SHA256;
+  plaintext keys are only returned once at creation. Legacy unsalted records
+  are migrated on successful verification. Scopes are validated against a
+  known set and enforced per route.
 
 ### 6. Upload validation and storage paths
 
 - Severity: n/a.
-- Status: Verified.
+- Status: Fixed and verified.
 - Detail: uploads enforce extension, detected content signature, declared
-  media type, and a size cap. Files are stored by content hash (hex path) in
-  a fixed root, and original names are reduced to a basename, so path
-  traversal is not possible.
+  media type, and a size cap; record dimensions and detection metadata; clean
+  temporary files on duplicate and failed writes; and sanitize SVG content.
+  Files are stored by content hash in a fixed root, and original names are
+  reduced to a basename.
 
 ### 7. Logging avoids secrets
 
@@ -80,9 +81,23 @@ mitigated with a rationale. The threat model is in `SECURITY-AND-OPS.md`.
   request id only — no headers, bodies, or credentials. AI task errors log a
   stable code, not provider responses.
 
+### 8. Scene graph integrity and recovery
+
+- Severity: High before M6 fixes.
+- Status: Fixed and covered.
+- Detail: scene mutations validate same-scene parents, reject cycles, protect
+  root nodes, use optimistic versions/ETags, and create immutable project
+  revisions. The API exposes revision listing and restore with `If-Match`.
+
+### 9. Idempotent mutation retries
+
+- Severity: Medium.
+- Status: Fixed and covered.
+- Detail: mutation requests with an `Idempotency-Key` are scoped to the
+  credential and route, retain successful responses for a configurable window,
+  replay identical requests, and reject payload changes.
+
 ## Remaining Work
 
-- Add a dedicated SVG sanitizer if SVG assets become a first-class export
-  format (currently referenced, not inlined).
 - Before any non-localhost deployment: require authentication for bootstrap,
   move SQLite to a managed store, and add per-tenant isolation.
